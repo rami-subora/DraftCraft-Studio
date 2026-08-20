@@ -1,12 +1,12 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { Stage, Layer, Image as KonvaImage, Rect, Circle, Line, Text, Transformer, Group } from 'react-konva';
+import { useEffect, useRef, useState } from 'react';
+import { Stage, Layer, Image as KonvaImage, Circle, Line, Text, Transformer, Group } from 'react-konva';
 import { useStore } from '../store/useStore';
 import type { Point, ShapeLayer } from '../store/useStore';
 import useImage from 'use-image';
 import { createPerspectiveTransform } from '../utils/transform';
 
 export function CanvasViewport() {
-  const { project, ui, layers, materials, addLayer, setUI, setProject, updateLayer } = useStore();
+  const { project, ui, layers, materials, addLayer, setUI, setProject, updateLayer, deleteLayer } = useStore();
   const [image] = useImage(project.warpedImageSrc || project.imageSrc || '');
   const stageRef = useRef<any>(null);
   const transformerRef = useRef<any>(null);
@@ -245,7 +245,7 @@ export function CanvasViewport() {
     }
   };
 
-  const handleStageDblClick = (e: any) => {
+  const handleStageDblClick = (_e: any) => {
     if (ui.activeTool === 'polyline' && ui.currentShapePoints.length > 1) {
       finishDrawingShape();
     }
@@ -536,7 +536,7 @@ export function CanvasViewport() {
         
         <Layer>
           {renderShapes()}
-          <Transformer ref={transformerRef} boundBoxFunc={(oldBox, newBox) => newBox} />
+          <Transformer ref={transformerRef} boundBoxFunc={(_oldBox, newBox) => newBox} />
 
           {/* Current Shape Drawing */}
           {ui.currentShapePoints.length > 0 && (

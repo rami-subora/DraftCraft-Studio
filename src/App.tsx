@@ -1,11 +1,11 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Workspace } from './components/Workspace';
 import { useStore } from './store/useStore';
 import { db } from './store/db';
 
 function App() {
   const [isLoaded, setIsLoaded] = useState(false);
-  const { setProject, addLayer, setMaterials } = useStore();
+  const { setProject } = useStore();
 
   // Load from DB on mount
   useEffect(() => {
