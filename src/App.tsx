@@ -28,9 +28,17 @@ function App() {
           return m;
         });
         useStore.getState().setMaterials(migratedMaterials);
-      } else {
         // If empty, it uses the mockMaterials from the store automatically
       }
+
+      const savedUI = localStorage.getItem('draftcraft-ui');
+      if (savedUI) {
+        try {
+          const parsedUI = JSON.parse(savedUI);
+          useStore.getState().setUI(parsedUI);
+        } catch(e) {}
+      }
+
       setIsLoaded(true);
     }
     loadData();
@@ -53,6 +61,14 @@ function App() {
         await db.materials.clear();
         await db.materials.bulkPut(state.materials);
       });
+
+      const uiToSave = {
+        pricelistSyncUrl: state.ui.pricelistSyncUrl,
+        rulerColor: state.ui.rulerColor,
+        ghostingOpacity: state.ui.ghostingOpacity,
+        lastSynced: state.ui.lastSynced
+      };
+      localStorage.setItem('draftcraft-ui', JSON.stringify(uiToSave));
     });
   }, [isLoaded]);
 

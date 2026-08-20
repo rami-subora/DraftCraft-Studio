@@ -25,6 +25,8 @@ export interface Material {
   color: string;
   baseRate: number;
   type: 'area' | 'linear' | 'count';
+  category?: string;
+  image?: string;
 }
 
 export interface ProjectState {
@@ -163,7 +165,7 @@ export const useStore = create<AppState>((set, get) => ({
   setMaterials: (materials) => set({ materials }),
   
   syncPricelist: async () => {
-    const { ui, materials } = get();
+    const { ui, materials, layers } = get();
     if (!ui.pricelistSyncUrl) return;
 
     try {
@@ -172,22 +174,26 @@ export const useStore = create<AppState>((set, get) => ({
       
       if (!Array.isArray(data)) throw new Error("Invalid data format from URL");
 
-      let updatedMaterials = [...materials];
+      const updatedMaterials: Material[] = [];
+      const validNames = new Set<string>();
 
       data.forEach((row: any) => {
         if (!row.Name || !row.Type) return;
+        validNames.add(row.Name.toLowerCase());
         
-        const existingIdx = updatedMaterials.findIndex(m => m.name.toLowerCase() === row.Name.toLowerCase());
+        const existingIdx = materials.findIndex(m => m.name.toLowerCase() === row.Name.toLowerCase());
         const baseRate = parseFloat(row.BaseRate) || 0;
         
         if (existingIdx >= 0) {
           // Update existing material
-          updatedMaterials[existingIdx] = {
-            ...updatedMaterials[existingIdx],
+          updatedMaterials.push({
+            ...materials[existingIdx],
             type: row.Type as 'area' | 'linear' | 'count',
             baseRate: baseRate,
-            color: row.Color || updatedMaterials[existingIdx].color
-          };
+            color: row.Color || materials[existingIdx].color,
+            category: row.Category || undefined,
+            image: row.Image || undefined
+          });
         } else {
           // Create new material
           updatedMaterials.push({
@@ -195,13 +201,28 @@ export const useStore = create<AppState>((set, get) => ({
             name: row.Name,
             type: row.Type as 'area' | 'linear' | 'count',
             baseRate: baseRate,
-            color: row.Color || `#${Math.floor(Math.random()*16777215).toString(16)}`
+            color: row.Color || `#${Math.floor(Math.random()*16777215).toString(16)}`,
+            category: row.Category || undefined,
+            image: row.Image || undefined
           });
         }
       });
 
+      // Find deleted materials
+      const deletedMaterialIds = materials.filter(m => !validNames.has(m.name.toLowerCase())).map(m => m.id);
+      
+      let updatedLayers = layers;
+      if (deletedMaterialIds.length > 0) {
+        updatedLayers = layers.map(l => 
+          l.materialId && deletedMaterialIds.includes(l.materialId) 
+            ? { ...l, materialId: null } 
+            : l
+        );
+      }
+
       set({ 
         materials: updatedMaterials, 
+        layers: updatedLayers,
         ui: { ...ui, lastSynced: Date.now() } 
       });
     } catch (err) {

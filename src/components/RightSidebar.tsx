@@ -159,7 +159,7 @@ export function RightSidebar() {
                   <select 
                     value={selectedLayer.materialId || ''}
                     onChange={(e) => updateLayer(selectedLayer.id, { materialId: e.target.value || null })}
-                    className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-zinc-200 focus:outline-none focus:border-amber-500"
+                    className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-zinc-200 focus:outline-none focus:border-amber-500 mb-2"
                   >
                     <option value="">-- No Material --</option>
                     {materials
@@ -172,6 +172,14 @@ export function RightSidebar() {
                       .map(m => <option key={m.id} value={m.id}>{m.name}</option>)
                     }
                   </select>
+                  {selectedLayer.materialId && materials.find(m => m.id === selectedLayer.materialId)?.image && (
+                    <img 
+                      src={materials.find(m => m.id === selectedLayer.materialId)!.image} 
+                      alt="Material Reference" 
+                      className="w-full h-24 object-cover rounded border border-zinc-700 mt-1" 
+                      onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                    />
+                  )}
                 </div>
               )}
 
@@ -224,7 +232,17 @@ export function RightSidebar() {
                     className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-zinc-200 focus:outline-none focus:border-amber-500"
                   >
                     <option value="">-- No Material / Keep Current --</option>
-                    {materials.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+                    {materials
+                      .filter(m => {
+                        return selectedLayers.every(layer => {
+                          if (['polygon', 'rect', 'circle'].includes(layer.type)) return m.type === 'area';
+                          if (layer.type === 'polyline') return m.type === 'linear';
+                          if (layer.type === 'point') return m.type === 'count';
+                          return true;
+                        });
+                      })
+                      .map(m => <option key={m.id} value={m.id}>{m.name}</option>)
+                    }
                   </select>
                </div>
                
@@ -276,46 +294,65 @@ export function RightSidebar() {
           <span>Live Estimation</span>
         </div>
         <div className="p-4 text-zinc-400">
-          {materials.map(mat => {
-            // ONLY CONSIDER VISIBLE LAYERS!
-            const matLayers = layers.filter(l => l.materialId === mat.id && l.visible);
-            if (matLayers.length === 0) return null;
-            
-            let qty = 0;
-            matLayers.forEach(l => {
-              if (['polygon', 'rect', 'circle'].includes(l.type) && project.scaleRatio) {
-                qty += getPolygonArea(l.points) / Math.pow(project.scaleRatio, 2);
-              } else if (l.type === 'polyline' && project.scaleRatio) {
-                qty += getPolylineLength(l.points) / project.scaleRatio;
-              } else if (l.type === 'point') {
-                qty += 1;
-              }
+          {(() => {
+            const categories = new Map<string, Material[]>();
+            materials.forEach(mat => {
+              const cat = mat.category || 'Uncategorized';
+              if (!categories.has(cat)) categories.set(cat, []);
+              categories.get(cat)!.push(mat);
             });
             
-            // Deduct global deductions only from area materials (AND only visible deductions)
-            if (mat.type === 'area' && project.scaleRatio) {
-              layers.filter(l => l.type === 'deduction' && l.visible).forEach(l => {
-                 qty -= getPolygonArea(l.points) / Math.pow(project.scaleRatio!, 2);
-              });
-            }
+            return Array.from(categories.entries()).sort().map(([catName, catMats]) => {
+              const hasVisibleLayers = catMats.some(mat => layers.some(l => l.materialId === mat.id && l.visible));
+              if (!hasVisibleLayers) return null;
+              
+              return (
+                <div key={catName} className="mb-5 last:mb-0">
+                  <div className="text-xs font-semibold uppercase tracking-wider text-zinc-500 mb-2 border-b border-zinc-800 pb-1">{catName}</div>
+                  {catMats.map(mat => {
+                    const matLayers = layers.filter(l => l.materialId === mat.id && l.visible);
+                    if (matLayers.length === 0) return null;
+                    
+                    let qty = 0;
+                    matLayers.forEach(l => {
+                      if (['polygon', 'rect', 'circle'].includes(l.type) && project.scaleRatio) {
+                        qty += getPolygonArea(l.points) / Math.pow(project.scaleRatio, 2);
+                      } else if (l.type === 'polyline' && project.scaleRatio) {
+                        qty += getPolylineLength(l.points) / project.scaleRatio;
+                      } else if (l.type === 'point') {
+                        qty += 1;
+                      }
+                    });
+                    
+                    if (mat.type === 'area' && project.scaleRatio) {
+                      layers.filter(l => l.type === 'deduction' && l.visible).forEach(l => {
+                         qty -= getPolygonArea(l.points) / Math.pow(project.scaleRatio!, 2);
+                      });
+                    }
 
-            if (qty <= 0) return null;
+                    if (qty <= 0) return null;
 
-            const cost = qty * mat.baseRate;
-            const unit = mat.type === 'area' ? 'm²' : mat.type === 'linear' ? 'm' : 'ea';
+                    const cost = qty * mat.baseRate;
+                    const unit = mat.type === 'area' ? 'm²' : mat.type === 'linear' ? 'm' : 'ea';
 
-            return (
-              <div key={mat.id} className="mb-3 last:mb-0 border border-zinc-800 rounded p-2 bg-zinc-850/50">
-                <div className="flex justify-between items-center mb-1">
-                  <span className="font-semibold text-zinc-300" style={{ color: mat.color }}>{mat.name}</span>
-                  <span className="text-amber-400 font-mono">${cost.toFixed(2)}</span>
+                    return (
+                      <div key={mat.id} className="mb-2 border border-zinc-800 rounded p-2 bg-zinc-850/50">
+                        <div className="flex justify-between items-center mb-1">
+                          <span className="font-semibold text-zinc-300" style={{ color: mat.color }}>{mat.name}</span>
+                          <span className="text-amber-400 font-mono">${cost.toFixed(2)}</span>
+                        </div>
+                        <div className="flex justify-between text-xs text-zinc-500">
+                          <span>{qty.toFixed(2)} {unit} @ ${mat.baseRate}</span>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
-                <div className="flex justify-between text-xs text-zinc-500">
-                  <span>{qty.toFixed(2)} {unit} @ ${mat.baseRate}</span>
-                </div>
-              </div>
-            );
-          })}
+              );
+            });
+          })()}
+
+
           {!layers.some(l => l.materialId && l.visible) && (
             <div className="text-center py-2 text-zinc-600">Assign materials to visible layers to see BOQ.</div>
           )}

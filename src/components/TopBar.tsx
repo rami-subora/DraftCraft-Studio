@@ -116,7 +116,15 @@ export function TopBar() {
         BaseRate: mat.baseRate,
         TotalCost: (qty * mat.baseRate).toFixed(2)
       };
-    }).filter(Boolean);
+    }).filter(Boolean) as any[];
+
+    if (boqData.length > 0) {
+      boqData.push({});
+      boqData.push({ Material: '--- SUMMARY ---' });
+      boqData.push({ Material: 'Total Area', Quantity: totalArea.toFixed(2), Unit: 'm²' });
+      boqData.push({ Material: 'Average Price', BaseRate: avgPrice.toFixed(2), Unit: '$/m²' });
+      boqData.push({ Material: 'Grand Total', TotalCost: grandTotalCost.toFixed(2) });
+    }
 
     const ws = XLSX.utils.json_to_sheet(boqData as any[]);
     const wb = XLSX.utils.book_new();
