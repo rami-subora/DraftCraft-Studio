@@ -78,7 +78,7 @@ export function Workspace() {
         canvas.width = viewport.width;
         canvas.height = viewport.height;
         
-        await page.render({ canvasContext: context, viewport }).promise;
+        await page.render({ canvasContext: context, viewport } as any).promise;
         
         setProject({
           imageSrc: canvas.toDataURL('image/png'),

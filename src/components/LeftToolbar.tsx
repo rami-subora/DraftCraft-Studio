@@ -1,7 +1,6 @@
-import React from 'react';
 import { 
   MousePointer2, Hand, SquareDashedMousePointer, Image as ImageIcon, 
-  MapPin, Spline, Frame, Scaling, Ruler, RectangleHorizontal, Circle as CircleIcon, Maximize, Activity
+  MapPin, Spline, Frame, Ruler, RectangleHorizontal, Circle as CircleIcon, Maximize, Activity
 } from 'lucide-react';
 import { useStore } from '../store/useStore';
 import { clsx } from 'clsx';

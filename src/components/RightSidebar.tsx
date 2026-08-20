@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useEffect } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import { useStore } from '../store/useStore';
 import { Layers, Settings2, Calculator, Trash2, Eye, EyeOff } from 'lucide-react';
 import { getPolygonArea, getPolylineLength } from '../utils/geometry';

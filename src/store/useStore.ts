@@ -7,7 +7,7 @@ export interface Point {
 
 export interface ShapeLayer {
   id: string;
-  type: 'polygon' | 'polyline' | 'point' | 'deduction';
+  type: 'polygon' | 'polyline' | 'point' | 'deduction' | 'boundary' | 'rect' | 'circle';
   points: Point[];
   materialId: string | null;
   name: string;

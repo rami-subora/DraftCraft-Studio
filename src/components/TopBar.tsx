@@ -1,4 +1,4 @@
-import React, { useMemo, useEffect, useState } from 'react';
+import { useMemo, useEffect, useState } from 'react';
 import { Menu, Save, FolderOpen, Download, Image as ImageIcon, PlusCircle, Settings2 } from 'lucide-react';
 import { useStore } from '../store/useStore';
 import { getPolygonArea, getPolylineLength } from '../utils/geometry';
@@ -8,7 +8,7 @@ import html2canvas from 'html2canvas';
 export function TopBar() {
   const { project, layers, materials, setProject, setLayers, setMaterials, ui } = useStore();
 
-  const { totalArea, grandTotalCost, projectBoundaryArea } = useMemo(() => {
+  const { totalArea, grandTotalCost } = useMemo(() => {
     let cost = 0;
     let boundAreaPx = 0;
 
