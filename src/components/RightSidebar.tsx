@@ -1,13 +1,17 @@
 import { useMemo, useState, useEffect } from 'react';
 import { useStore } from '../store/useStore';
-import { Layers, Settings2, Calculator, Trash2, Eye, EyeOff } from 'lucide-react';
+import { Layers, Settings2, Trash2, Eye, EyeOff, Folder as FolderIcon, FolderOpen, ChevronDown, ChevronRight, FolderPlus, Lock, Unlock, ArrowUp, ArrowDown, ChevronsUp, ChevronsDown, Copy } from 'lucide-react';
 import { getPolygonArea, getPolylineLength } from '../utils/geometry';
-import type { ShapeLayer, Material } from '../store/useStore';
+import type { ShapeLayer, Material, LayerFolder } from '../store/useStore';
 
 export function RightSidebar() {
-  const { layers, materials, ui, setUI, project, updateLayer, deleteLayer, setMaterials } = useStore();
-  const [width, setWidth] = useState(320);
+  const { layers: allLayers, materials, folders: allFolders, ui, setUI, project, updateLayer, deleteLayer, addFolder, updateFolder, deleteFolder, setMaterials, duplicateLayers, moveLayersZIndex } = useStore();
   const [isResizing, setIsResizing] = useState(false);
+  const [collapsedFolders, setCollapsedFolders] = useState<Record<string, boolean>>({});
+  const [collapsedMaterials, setCollapsedMaterials] = useState<Record<string, boolean>>({});
+
+  const layers = allLayers.filter(l => l.tabId === ui.activeTabId);
+  const folders = allFolders.filter(f => f.tabId === ui.activeTabId);
 
   const selectedLayers = layers.filter(l => ui.selectedLayerIds.includes(l.id));
   const selectedLayer = selectedLayers.length === 1 ? selectedLayers[0] : null;
@@ -16,7 +20,9 @@ export function RightSidebar() {
     const handleMouseMove = (e: MouseEvent) => {
       if (!isResizing) return;
       const newWidth = window.innerWidth - e.clientX;
-      if (newWidth > 250 && newWidth < 800) setWidth(newWidth);
+      if (newWidth > 250 && newWidth < 800) {
+         setUI({ rightSidebarWidth: newWidth });
+      }
     };
     const handleMouseUp = () => setIsResizing(false);
     
@@ -30,23 +36,36 @@ export function RightSidebar() {
     };
   }, [isResizing]);
 
-  // Group layers by material
-  const groupedLayers = useMemo(() => {
-    const groups: { material: Material | null; layers: ShapeLayer[] }[] = [];
+  const folderGroups = useMemo(() => {
+    const fGroups: { folder: LayerFolder | null; materialGroups: { material: Material | null; layers: ShapeLayer[] }[] }[] = [];
     
-    const unassigned = layers.filter(l => !l.materialId && l.type !== 'deduction');
-    const deductions = layers.filter(l => l.type === 'deduction');
-    
-    materials.forEach(mat => {
-      const matLayers = layers.filter(l => l.materialId === mat.id && l.type !== 'deduction');
-      if (matLayers.length > 0) groups.push({ material: mat, layers: matLayers });
+    const groupLayersByMaterial = (layersToGroup: ShapeLayer[]) => {
+       const mGroups: { material: Material | null; layers: ShapeLayer[] }[] = [];
+       const unassigned = layersToGroup.filter(l => !l.materialId && l.type !== 'deduction');
+       const deductions = layersToGroup.filter(l => l.type === 'deduction');
+       
+       materials.forEach(mat => {
+         const matLayers = layersToGroup.filter(l => l.materialId === mat.id && l.type !== 'deduction');
+         if (matLayers.length > 0) mGroups.push({ material: mat, layers: matLayers });
+       });
+       
+       if (unassigned.length > 0) mGroups.push({ material: null, layers: unassigned });
+       if (deductions.length > 0) mGroups.push({ material: { id: 'deductions', name: 'Deductions', color: '#ef4444', type: 'area', baseRate: 0 }, layers: deductions });
+       return mGroups;
+    };
+
+    folders.forEach(folder => {
+       const folderLayers = layers.filter(l => l.folderId === folder.id);
+       fGroups.push({ folder, materialGroups: groupLayersByMaterial(folderLayers) });
     });
 
-    if (unassigned.length > 0) groups.push({ material: null, layers: unassigned });
-    if (deductions.length > 0) groups.push({ material: { id: 'deductions', name: 'Deductions (Subtractions)', color: '#ef4444', type: 'area', baseRate: 0 }, layers: deductions });
-    
-    return groups;
-  }, [layers, materials]);
+    const rootLayers = layers.filter(l => !l.folderId);
+    if (rootLayers.length > 0 || fGroups.length === 0) {
+       fGroups.push({ folder: null, materialGroups: groupLayersByMaterial(rootLayers) });
+    }
+
+    return fGroups;
+  }, [layers, materials, folders]);
 
   const toggleGroupVisibility = (groupLayers: ShapeLayer[]) => {
     const anyHidden = groupLayers.some(l => !l.visible);
@@ -58,76 +77,144 @@ export function RightSidebar() {
   };
 
   return (
-    <div className="bg-zinc-900 border-l border-zinc-800 flex flex-col overflow-y-auto select-none z-10 text-sm relative shrink-0" style={{ width: `${width}px` }}>
+    <div className="bg-zinc-900 border-l border-zinc-800 flex flex-col overflow-y-auto select-none z-10 text-sm relative shrink-0" style={{ width: `${ui.rightSidebarWidth}px` }}>
       <div className="absolute left-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-amber-500/50 z-50" onMouseDown={() => setIsResizing(true)} />
       
       {/* Layers Panel */}
       <div className="border-b border-zinc-800 flex-1 min-h-[30%] overflow-y-auto">
-        <div className="px-4 py-3 bg-zinc-850 flex items-center space-x-2 text-zinc-300 font-medium sticky top-0 z-10 border-b border-zinc-800">
-          <Layers size={16} />
-          <span>Layers</span>
+        <div className="px-4 py-3 bg-zinc-850 flex justify-between items-center text-zinc-300 font-medium sticky top-0 z-10 border-b border-zinc-800">
+          <div className="flex items-center space-x-2">
+             <Layers size={16} />
+             <span>Layers</span>
+          </div>
+          <button 
+             onClick={() => {
+                const id = `folder-${Date.now()}`;
+                addFolder({ id, tabId: ui.activeTabId, name: `Folder ${folders.length + 1}`, visible: true, locked: false, color: '#3b82f6' });
+             }}
+             className="p-1 rounded text-zinc-400 hover:text-amber-400 hover:bg-zinc-800 transition-colors"
+             title="Create Folder"
+          >
+             <FolderPlus size={16} />
+          </button>
         </div>
         <div className="p-3 flex flex-col space-y-4 text-zinc-400">
-          {layers.length === 0 ? (
+          {layers.length === 0 && folders.length === 0 ? (
             <div className="text-center py-4 text-zinc-600">No layers yet</div>
           ) : (
-            groupedLayers.map((group, idx) => (
-              <div key={group.material ? group.material.id : `unassigned-${idx}`}>
-                <div className="text-xs font-semibold uppercase tracking-wider text-zinc-500 mb-2 flex justify-between items-center group-hover:text-zinc-400">
-                  <div className="flex items-center space-x-2">
-                    {group.material && group.material.id !== 'deductions' ? (
-                      <input type="color" value={group.material.color} onChange={(e) => updateMaterialColor(group.material!.id, e.target.value)} className="w-3 h-3 p-0 border-0 rounded-full overflow-hidden cursor-pointer bg-transparent" title="Edit Material Color" />
-                    ) : (
-                      <span className="w-2 h-2 rounded-full" style={{ backgroundColor: group.material?.color || '#52525b' }}></span>
+            folderGroups.map((fGroup, fIdx) => {
+               const folder = fGroup.folder;
+               const isCollapsed = folder ? collapsedFolders[folder.id] : false;
+               const allFolderLayers = fGroup.materialGroups.flatMap(mg => mg.layers);
+               const isFolderVisible = folder ? folder.visible : true;
+               
+               return (
+                 <div key={folder ? folder.id : `root-${fIdx}`} className="mb-2">
+                    {folder && (
+                       <div className="flex items-center justify-between mb-1 py-1.5 px-2 bg-zinc-800/40 border border-zinc-800/80 rounded group cursor-pointer hover:bg-zinc-800/60 transition-colors" onClick={() => setCollapsedFolders(prev => ({ ...prev, [folder.id]: !prev[folder.id] }))}>
+                         <div className="flex items-center space-x-2">
+                            {isCollapsed ? <ChevronRight size={14} className="text-zinc-500" /> : <ChevronDown size={14} className="text-zinc-500" />}
+                            {isCollapsed ? <FolderIcon size={14} className="text-amber-500" /> : <FolderOpen size={14} className="text-amber-500" />}
+                            <span className="font-semibold text-zinc-300 truncate w-32" style={{ color: folder.color }}>{folder.name}</span>
+                         </div>
+                         <div className="flex items-center space-x-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <button 
+                              onClick={(e) => { e.stopPropagation(); updateFolder(folder.id, { visible: !folder.visible }); allFolderLayers.forEach(l => updateLayer(l.id, { visible: !folder.visible })); }}
+                              className="p-1 rounded text-zinc-500 hover:text-zinc-300"
+                              title="Toggle Folder Visibility"
+                            >
+                              {folder.visible ? <Eye size={14} /> : <EyeOff size={14} />}
+                            </button>
+                            <button onClick={(e) => { e.stopPropagation(); deleteFolder(folder.id); }} className="p-1 rounded text-zinc-500 hover:text-red-400">
+                               <Trash2 size={14} />
+                            </button>
+                         </div>
+                       </div>
                     )}
-                    <span>{group.material ? group.material.name : 'Unassigned'}</span>
-                  </div>
-                  <button onClick={() => toggleGroupVisibility(group.layers)} className="text-zinc-600 hover:text-zinc-300" title="Toggle Group Visibility">
-                    {group.layers.every(l => l.visible) ? <Eye size={14} /> : <EyeOff size={14} />}
-                  </button>
-                </div>
-                <div className="space-y-1">
-                  {group.layers.map(layer => (
-                    <div 
-                      key={layer.id} 
-                      className={`px-2 py-1.5 rounded border cursor-pointer flex justify-between items-center transition-colors ${ui.selectedLayerIds.includes(layer.id) ? 'bg-zinc-800 border-zinc-600 text-zinc-200' : 'border-zinc-800/50 hover:border-zinc-700'} ${!layer.visible ? 'opacity-50' : ''}`}
-                      onClick={(e) => {
-                        if (e.shiftKey) {
-                           if (ui.selectedLayerIds.includes(layer.id)) {
-                             setUI({ selectedLayerIds: ui.selectedLayerIds.filter(id => id !== layer.id) });
-                           } else {
-                             setUI({ selectedLayerIds: [...ui.selectedLayerIds, layer.id] });
-                           }
-                        } else {
-                           setUI({ selectedLayerIds: [layer.id] });
-                        }
-                      }}
-                    >
-                      <div className="truncate pr-2 flex-1">
-                        <div className="font-medium text-zinc-300">{layer.name}</div>
-                        <div className="text-[10px] mt-0.5 text-zinc-500 capitalize">{layer.type}</div>
-                      </div>
-                      <div className="flex items-center space-x-1 shrink-0">
-                        <button 
-                          onClick={(e) => { e.stopPropagation(); updateLayer(layer.id, { visible: !layer.visible }); }}
-                          className={`p-1 rounded transition-colors ${layer.visible ? 'text-zinc-500 hover:text-zinc-300' : 'text-zinc-600 hover:text-amber-400'}`}
-                          title="Toggle Visibility (Disables BOQ)"
-                        >
-                          {layer.visible ? <Eye size={14} /> : <EyeOff size={14} />}
-                        </button>
-                        <button 
-                          onClick={(e) => { e.stopPropagation(); deleteLayer(layer.id); }}
-                          className="text-zinc-500 hover:text-red-400 p-1 rounded transition-colors"
-                          title="Delete Layer"
-                        >
-                          <Trash2 size={14} />
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ))
+                    
+                    {!isCollapsed && (
+                       <div className={folder ? "pl-5 border-l border-zinc-800/50 ml-3 mt-2 space-y-4" : "space-y-4"}>
+                          {fGroup.materialGroups.map((group, idx) => {
+                            const matKey = group.material ? group.material.id : `unassigned-${idx}`;
+                            const isMatCollapsed = collapsedMaterials[`${folder ? folder.id : 'root'}-${matKey}`];
+                            return (
+                            <div key={matKey}>
+                              <div className="text-xs font-semibold uppercase tracking-wider text-zinc-500 mb-2 flex justify-between items-center group-hover:text-zinc-400">
+                                <div className="flex items-center space-x-2 cursor-pointer hover:text-zinc-300 transition-colors flex-1" onClick={() => setCollapsedMaterials(prev => ({ ...prev, [`${folder ? folder.id : 'root'}-${matKey}`]: !prev[`${folder ? folder.id : 'root'}-${matKey}`] }))}>
+                                  {isMatCollapsed ? <ChevronRight size={14} className="text-zinc-600" /> : <ChevronDown size={14} className="text-zinc-600" />}
+                                  {group.material && group.material.id !== 'deductions' ? (
+                                    <input type="color" value={group.material.color} onChange={(e) => updateMaterialColor(group.material!.id, e.target.value)} onClick={e => e.stopPropagation()} className="w-3 h-3 p-0 border-0 rounded-full overflow-hidden cursor-pointer bg-transparent" title="Edit Material Color" />
+                                  ) : (
+                                    <span className="w-2 h-2 rounded-full" style={{ backgroundColor: group.material?.color || '#52525b' }}></span>
+                                  )}
+                                  <span>{group.material ? group.material.name : 'Unassigned'}</span>
+                                </div>
+                                <div className="flex items-center space-x-1">
+                                  <button 
+                                    onClick={() => setUI({ selectedLayerIds: group.layers.map(l => l.id) })}
+                                    className="px-1.5 py-0.5 text-[10px] rounded bg-zinc-800 text-zinc-400 hover:text-amber-400 hover:bg-zinc-700 transition-colors mr-1"
+                                    title="Select all"
+                                  >
+                                    Select All
+                                  </button>
+                                  <button onClick={() => toggleGroupVisibility(group.layers)} className="text-zinc-600 hover:text-zinc-300" title="Toggle Visibility">
+                                    {group.layers.every(l => l.visible) ? <Eye size={14} /> : <EyeOff size={14} />}
+                                  </button>
+                                </div>
+                              </div>
+                              {!isMatCollapsed && (
+                                <div className="space-y-1">
+                                  {group.layers.map(layer => (
+                                    <div 
+                                      key={layer.id} 
+                                      className={`px-2 py-1.5 rounded border cursor-pointer flex justify-between items-center transition-colors ${ui.selectedLayerIds.includes(layer.id) ? 'bg-zinc-800 border-zinc-600 text-zinc-200' : 'border-zinc-800/50 hover:border-zinc-700'} ${(!layer.visible || !isFolderVisible) ? 'opacity-50' : ''}`}
+                                      onMouseEnter={() => setUI({ hoveredLayerId: layer.id })}
+                                      onMouseLeave={() => setUI({ hoveredLayerId: null })}
+                                      onClick={(e) => {
+                                        if (e.shiftKey) {
+                                           setUI({ selectedLayerIds: ui.selectedLayerIds.includes(layer.id) ? ui.selectedLayerIds.filter(id => id !== layer.id) : [...ui.selectedLayerIds, layer.id] });
+                                        } else {
+                                           setUI({ selectedLayerIds: [layer.id] });
+                                        }
+                                      }}
+                                    >
+                                      <div className="truncate pr-2 flex-1">
+                                        <div className="font-medium text-zinc-300 truncate">{layer.name}</div>
+                                        <div className="text-[10px] mt-0.5 text-zinc-500 capitalize">{layer.type}</div>
+                                      </div>
+                                      <div className="flex items-center space-x-1 shrink-0">
+                                        <button 
+                                          onClick={(e) => { e.stopPropagation(); updateLayer(layer.id, { locked: !layer.locked }); }}
+                                          className={`p-1 rounded transition-colors ${layer.locked ? 'text-amber-500 hover:text-amber-400' : 'text-zinc-600 hover:text-zinc-400'}`}
+                                          title={layer.locked ? "Unlock Layer" : "Lock Layer"}
+                                        >
+                                          {layer.locked ? <Lock size={14} /> : <Unlock size={14} />}
+                                        </button>
+                                        <button 
+                                          onClick={(e) => { e.stopPropagation(); updateLayer(layer.id, { visible: !layer.visible }); }}
+                                          className={`p-1 rounded transition-colors ${layer.visible ? 'text-zinc-500 hover:text-zinc-300' : 'text-zinc-600 hover:text-amber-400'}`}
+                                          title="Toggle Visibility"
+                                        >
+                                          {layer.visible ? <Eye size={14} /> : <EyeOff size={14} />}
+                                        </button>
+                                        <button 
+                                          onClick={(e) => { e.stopPropagation(); deleteLayer(layer.id); }}
+                                          className="text-zinc-500 hover:text-red-400 p-1 rounded transition-colors"
+                                        >
+                                          <Trash2 size={14} />
+                                        </button>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          )})}
+                       </div>
+                    )}
+                 </div>
+               );
+            })
           )}
         </div>
       </div>
@@ -143,6 +230,24 @@ export function RightSidebar() {
             <div className="text-center py-2 text-zinc-600">Select a layer to view properties.</div>
           ) : selectedLayers.length === 1 && selectedLayer ? (
             <div className="space-y-4">
+              <div className="flex space-x-2 mb-4">
+                 <button onClick={() => duplicateLayers([selectedLayer.id])} className="flex-1 flex items-center justify-center space-x-1 px-2 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded border border-zinc-700 transition-colors text-xs font-medium" title="Duplicate Layer (Ctrl+D)">
+                    <Copy size={14} /> <span>Duplicate</span>
+                 </button>
+                 <button onClick={() => moveLayersZIndex([selectedLayer.id], 'up')} className="px-2 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-zinc-200 rounded border border-zinc-700 transition-colors" title="Bring Forward">
+                    <ArrowUp size={14} />
+                 </button>
+                 <button onClick={() => moveLayersZIndex([selectedLayer.id], 'front')} className="px-2 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-zinc-200 rounded border border-zinc-700 transition-colors" title="Bring to Front">
+                    <ChevronsUp size={14} />
+                 </button>
+                 <button onClick={() => moveLayersZIndex([selectedLayer.id], 'down')} className="px-2 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-zinc-200 rounded border border-zinc-700 transition-colors" title="Send Backward">
+                    <ArrowDown size={14} />
+                 </button>
+                 <button onClick={() => moveLayersZIndex([selectedLayer.id], 'back')} className="px-2 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-zinc-200 rounded border border-zinc-700 transition-colors" title="Send to Back">
+                    <ChevronsDown size={14} />
+                 </button>
+              </div>
+
               <div>
                 <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-500 mb-1">Name</label>
                 <input 
@@ -153,7 +258,49 @@ export function RightSidebar() {
                 />
               </div>
 
-              {selectedLayer.type !== 'deduction' && selectedLayer.type !== 'boundary' && (
+              {selectedLayer.type === 'text' && (
+                <div className="mb-2">
+                  <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-500 mb-1">Text Content</label>
+                  <textarea 
+                    value={selectedLayer.text || ''}
+                    onChange={(e) => updateLayer(selectedLayer.id, { text: e.target.value })}
+                    className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-zinc-200 focus:outline-none focus:border-amber-500"
+                    rows={2}
+                  />
+                </div>
+              )}
+
+              <div className="mb-2">
+                <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-500 mb-1">Folder</label>
+                <select
+                  value={selectedLayer.folderId || ''}
+                  onChange={(e) => updateLayer(selectedLayer.id, { folderId: e.target.value || undefined })}
+                  className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-zinc-200 focus:outline-none focus:border-amber-500"
+                >
+                  <option value="">-- No Folder --</option>
+                  {folders.map(f => (
+                     <option key={f.id} value={f.id}>{f.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              {selectedLayer.type === 'deduction' && (
+                <div className="mb-2">
+                  <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-500 mb-1">Parent Polygon</label>
+                  <select
+                    value={selectedLayer.parentId || ''}
+                    onChange={(e) => updateLayer(selectedLayer.id, { parentId: e.target.value || undefined })}
+                    className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-zinc-200 focus:outline-none focus:border-amber-500"
+                  >
+                    <option value="">-- No Parent (Free) --</option>
+                    {layers.filter(l => ['polygon', 'rect', 'circle', 'boundary'].includes(l.type)).map(l => (
+                       <option key={l.id} value={l.id}>{l.name}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {selectedLayer.type !== 'deduction' && selectedLayer.type !== 'boundary' && selectedLayer.type !== 'text' && selectedLayer.type !== 'arrow' && selectedLayer.type !== 'cloud' && (
                 <div>
                   <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-500 mb-1">Material</label>
                   <select 
@@ -179,6 +326,21 @@ export function RightSidebar() {
                       className="w-full h-24 object-cover rounded border border-zinc-700 mt-1" 
                       onError={(e) => { e.currentTarget.style.display = 'none'; }}
                     />
+                  )}
+                  {selectedLayer.materialId && materials.find(m => m.id === selectedLayer.materialId)?.options && (
+                    <div className="mt-2">
+                      <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-500 mb-1">Finish Option</label>
+                      <select 
+                        value={selectedLayer.selectedOption || ''}
+                        onChange={(e) => updateLayer(selectedLayer.id, { selectedOption: e.target.value || undefined })}
+                        className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-zinc-200 focus:outline-none focus:border-amber-500"
+                      >
+                        <option value="">-- Standard Finish --</option>
+                        {materials.find(m => m.id === selectedLayer.materialId)!.options!.map(opt => (
+                          <option key={opt.name} value={opt.name}>{opt.name} ({opt.type === 'percentage' ? '+' + opt.value + '%' : '+$' + opt.value})</option>
+                        ))}
+                      </select>
+                    </div>
                   )}
                 </div>
               )}
@@ -207,7 +369,9 @@ export function RightSidebar() {
 
               <div className="pt-2 border-t border-zinc-800">
                 <div className="text-xs text-zinc-500 mb-1">Measurements</div>
-                {['polygon', 'deduction', 'boundary', 'rect', 'circle'].includes(selectedLayer.type) ? (
+                {['text', 'arrow', 'cloud'].includes(selectedLayer.type) ? (
+                  <div className="text-zinc-300">Annotation (Excluded from BOQ)</div>
+                ) : ['polygon', 'deduction', 'boundary', 'rect', 'circle'].includes(selectedLayer.type) ? (
                   <div className="text-zinc-300">{project.scaleRatio ? (getPolygonArea(selectedLayer.points) / Math.pow(project.scaleRatio, 2)).toFixed(2) + ' m²' : 'Uncalibrated'}</div>
                 ) : selectedLayer.type === 'polyline' ? (
                   <div className="text-zinc-300">{project.scaleRatio ? (getPolylineLength(selectedLayer.points) / project.scaleRatio).toFixed(2) + ' m' : 'Uncalibrated'}</div>
@@ -221,29 +385,73 @@ export function RightSidebar() {
                <div className="text-center font-semibold text-amber-500 mb-2">{selectedLayers.length} Layers Selected</div>
                
                <div>
+                  <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-500 mb-1">Move to Folder (All)</label>
+                   <select 
+                     onChange={(e) => {
+                       const val = e.target.value || undefined;
+                       const updates = selectedLayers.map(l => ({ id: l.id, changes: { folderId: val } }));
+                       useStore.getState().updateLayers(updates);
+                     }}
+                     className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-zinc-200 focus:outline-none focus:border-amber-500 mb-4"
+                   >
+                     <option value="">-- No Folder / Keep Current --</option>
+                     {folders.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
+                   </select>
+               </div>
+               
+               <div>
                   <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-500 mb-1">Assign Material (All)</label>
-                  <select 
-                    onChange={(e) => {
-                      const val = e.target.value || null;
-                      selectedLayers.forEach(l => {
-                         updateLayer(l.id, { materialId: val });
-                      });
-                    }}
-                    className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-zinc-200 focus:outline-none focus:border-amber-500"
-                  >
-                    <option value="">-- No Material / Keep Current --</option>
-                    {materials
-                      .filter(m => {
-                        return selectedLayers.every(layer => {
-                          if (['polygon', 'rect', 'circle'].includes(layer.type)) return m.type === 'area';
-                          if (layer.type === 'polyline') return m.type === 'linear';
-                          if (layer.type === 'point') return m.type === 'count';
-                          return true;
-                        });
-                      })
-                      .map(m => <option key={m.id} value={m.id}>{m.name}</option>)
-                    }
-                  </select>
+                   <select 
+                     onChange={(e) => {
+                       const val = e.target.value || null;
+                       const updates = selectedLayers.map(l => ({ id: l.id, changes: { materialId: val, selectedOption: undefined } }));
+                       useStore.getState().updateLayers(updates);
+                     }}
+                     className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-zinc-200 focus:outline-none focus:border-amber-500"
+                   >
+                     <option value="">-- No Material / Keep Current --</option>
+                     {materials
+                       .filter(m => {
+                         return selectedLayers.every(layer => {
+                           if (['polygon', 'rect', 'circle'].includes(layer.type)) return m.type === 'area';
+                           if (layer.type === 'polyline') return m.type === 'linear';
+                           if (layer.type === 'point') return m.type === 'count';
+                           return true;
+                         });
+                       })
+                       .map(m => <option key={m.id} value={m.id}>{m.name}</option>)
+                     }
+                   </select>
+                   
+                   {/* Options Dropdown if all share the same material */}
+                   {(() => {
+                      const sharedMaterialId = selectedLayers[0].materialId;
+                      const allSameMaterial = sharedMaterialId && selectedLayers.every(l => l.materialId === sharedMaterialId);
+                      if (allSameMaterial) {
+                         const mat = materials.find(m => m.id === sharedMaterialId);
+                         if (mat && mat.options && mat.options.length > 0) {
+                            return (
+                               <div className="mt-4">
+                                 <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-500 mb-1">Finish Option (All)</label>
+                                 <select 
+                                   onChange={(e) => {
+                                     const val = e.target.value || undefined;
+                                     const updates = selectedLayers.map(l => ({ id: l.id, changes: { selectedOption: val } }));
+                                     useStore.getState().updateLayers(updates);
+                                   }}
+                                   className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-zinc-200 focus:outline-none focus:border-amber-500"
+                                 >
+                                   <option value="">-- Keep Current / Standard --</option>
+                                   {mat.options.map(opt => (
+                                      <option key={opt.name} value={opt.name}>{opt.name} ({opt.type === 'percentage' ? '+' + opt.value + '%' : '+$' + opt.value})</option>
+                                   ))}
+                                 </select>
+                               </div>
+                            );
+                         }
+                      }
+                      return null;
+                   })()}
                </div>
                
                <div className="flex space-x-4">
@@ -286,78 +494,6 @@ export function RightSidebar() {
           )}
         </div>
       </div>
-
-      {/* Estimation Panel */}
-      <div className="shrink-0 max-h-64 overflow-y-auto">
-        <div className="px-4 py-3 bg-zinc-850 flex items-center space-x-2 text-zinc-300 font-medium border-b border-zinc-800 sticky top-0">
-          <Calculator size={16} />
-          <span>Live Estimation</span>
-        </div>
-        <div className="p-4 text-zinc-400">
-          {(() => {
-            const categories = new Map<string, Material[]>();
-            materials.forEach(mat => {
-              const cat = mat.category || 'Uncategorized';
-              if (!categories.has(cat)) categories.set(cat, []);
-              categories.get(cat)!.push(mat);
-            });
-            
-            return Array.from(categories.entries()).sort().map(([catName, catMats]) => {
-              const hasVisibleLayers = catMats.some(mat => layers.some(l => l.materialId === mat.id && l.visible));
-              if (!hasVisibleLayers) return null;
-              
-              return (
-                <div key={catName} className="mb-5 last:mb-0">
-                  <div className="text-xs font-semibold uppercase tracking-wider text-zinc-500 mb-2 border-b border-zinc-800 pb-1">{catName}</div>
-                  {catMats.map(mat => {
-                    const matLayers = layers.filter(l => l.materialId === mat.id && l.visible);
-                    if (matLayers.length === 0) return null;
-                    
-                    let qty = 0;
-                    matLayers.forEach(l => {
-                      if (['polygon', 'rect', 'circle'].includes(l.type) && project.scaleRatio) {
-                        qty += getPolygonArea(l.points) / Math.pow(project.scaleRatio, 2);
-                      } else if (l.type === 'polyline' && project.scaleRatio) {
-                        qty += getPolylineLength(l.points) / project.scaleRatio;
-                      } else if (l.type === 'point') {
-                        qty += 1;
-                      }
-                    });
-                    
-                    if (mat.type === 'area' && project.scaleRatio) {
-                      layers.filter(l => l.type === 'deduction' && l.visible).forEach(l => {
-                         qty -= getPolygonArea(l.points) / Math.pow(project.scaleRatio!, 2);
-                      });
-                    }
-
-                    if (qty <= 0) return null;
-
-                    const cost = qty * mat.baseRate;
-                    const unit = mat.type === 'area' ? 'm²' : mat.type === 'linear' ? 'm' : 'ea';
-
-                    return (
-                      <div key={mat.id} className="mb-2 border border-zinc-800 rounded p-2 bg-zinc-850/50">
-                        <div className="flex justify-between items-center mb-1">
-                          <span className="font-semibold text-zinc-300" style={{ color: mat.color }}>{mat.name}</span>
-                          <span className="text-amber-400 font-mono">${cost.toFixed(2)}</span>
-                        </div>
-                        <div className="flex justify-between text-xs text-zinc-500">
-                          <span>{qty.toFixed(2)} {unit} @ ${mat.baseRate}</span>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              );
-            });
-          })()}
-
-
-          {!layers.some(l => l.materialId && l.visible) && (
-            <div className="text-center py-2 text-zinc-600">Assign materials to visible layers to see BOQ.</div>
-          )}
-        </div>
-      </div>
     </div>
   );
-}
+};

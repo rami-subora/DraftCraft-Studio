@@ -3,6 +3,7 @@ import { TopBar } from './TopBar';
 import { LeftToolbar } from './LeftToolbar';
 import { RightSidebar } from './RightSidebar';
 import { CanvasViewport } from './CanvasViewport';
+import { TabBar } from './TabBar';
 import { useStore } from '../store/useStore';
 import { UploadCloud } from 'lucide-react';
 import * as pdfjsLib from 'pdfjs-dist';
@@ -11,7 +12,7 @@ import * as pdfjsLib from 'pdfjs-dist';
 pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
 
 export function Workspace() {
-  const { setProject } = useStore();
+  const { setProject, updateTab, ui } = useStore();
   const [isDragging, setIsDragging] = useState(false);
 
   useEffect(() => {
@@ -54,14 +55,16 @@ export function Workspace() {
   }, []);
 
   const processFile = async (file: File) => {
+    const currentTabId = useStore.getState().ui.activeTabId;
     if (file.type.startsWith('image/')) {
       const reader = new FileReader();
       reader.onload = (e) => {
-        setProject({
+        updateTab(currentTabId, {
           imageSrc: e.target?.result as string,
           warpedImageSrc: null,
           name: file.name
         });
+        setProject({ name: file.name }); // Optionally set project name if desired, or keep it per tab
       };
       reader.readAsDataURL(file);
     } else if (file.type === 'application/pdf') {
@@ -80,11 +83,12 @@ export function Workspace() {
         
         await page.render({ canvasContext: context, viewport } as any).promise;
         
-        setProject({
+        updateTab(currentTabId, {
           imageSrc: canvas.toDataURL('image/png'),
           warpedImageSrc: null,
           name: file.name
         });
+        setProject({ name: file.name });
       } catch (err) {
         console.error('Error rendering PDF:', err);
         alert('Failed to parse PDF.');
@@ -101,6 +105,7 @@ export function Workspace() {
       onDrop={handleDrop}
     >
       <TopBar />
+      <TabBar />
       <div className="flex flex-1 overflow-hidden relative">
         <LeftToolbar />
         <CanvasViewport />

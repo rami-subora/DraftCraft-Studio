@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Workspace } from './components/Workspace';
 import { useStore } from './store/useStore';
 import { db } from './store/db';
+import { PromptDialog } from './components/PromptDialog';
 
 function App() {
   const [isLoaded, setIsLoaded] = useState(false);
@@ -64,8 +65,6 @@ function App() {
 
       const uiToSave = {
         pricelistSyncUrl: state.ui.pricelistSyncUrl,
-        rulerColor: state.ui.rulerColor,
-        ghostingOpacity: state.ui.ghostingOpacity,
         lastSynced: state.ui.lastSynced
       };
       localStorage.setItem('draftcraft-ui', JSON.stringify(uiToSave));
@@ -74,7 +73,12 @@ function App() {
 
   if (!isLoaded) return <div className="h-screen w-screen bg-zinc-950 flex items-center justify-center text-zinc-500">Loading workspace...</div>;
 
-  return <Workspace />;
+  return (
+    <>
+      <Workspace />
+      <PromptDialog />
+    </>
+  );
 }
 
 export default App;
