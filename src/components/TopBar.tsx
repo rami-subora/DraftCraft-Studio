@@ -1,7 +1,8 @@
 import { useMemo, useEffect, useState } from 'react';
 import { Save, FolderOpen, Download, Image as ImageIcon, PlusCircle, Settings2, Undo2, Redo2, Trash2, FileText } from 'lucide-react';
 import { useStore } from '../store/useStore';
-import { getPolygonArea, getPolylineLength } from '../utils/geometry';
+import { calculateTabBOQ, calculateProjectTotal } from '../utils/boq';
+import { saveDraftcraft, openDraftcraft } from '../utils/draftcraft';
 import * as XLSX from 'xlsx';
 import html2canvas from 'html2canvas';
 import jsPDF from 'jspdf';
@@ -14,93 +15,42 @@ export function TopBar() {
   
   const activeTab = project.tabs.find(t => t.id === ui.activeTabId) || project.tabs[0];
 
-  const calculateTabCost = (tab: any) => {
-    let cost = 0;
-    let boundAreaPx = 0;
-    const tabLayers = allLayers.filter(l => l.tabId === tab.id);
+  const { totalArea, grandTotalCost, lineItems } = useMemo(
+    () => calculateTabBOQ(activeTab, allLayers, materials, project.exchangeRate || 1),
+    [allLayers, materials, activeTab, project.exchangeRate]
+  );
 
-    tabLayers.forEach(layer => {
-      if (layer.type === 'boundary') {
-        boundAreaPx += getPolygonArea(layer.points);
-      } else if (layer.materialId) {
-        const mat = materials.find(m => m.id === layer.materialId);
-        if (mat && tab.scaleRatio) {
-           let rate = mat.baseRate;
-           const optName = layer.selectedOption || 'Standard';
-           const optData = mat.options?.find(o => o.name === optName);
-           if (optData) {
-              if (optData.type === 'percentage') {
-                 rate = rate * (1 + optData.value / 100);
-              } else {
-                 rate = rate + optData.value;
-              }
-           }
-           
-           if (['polygon', 'rect', 'circle'].includes(layer.type)) {
-             let area = getPolygonArea(layer.points) / (tab.scaleRatio * tab.scaleRatio);
-             if (mat.type === 'area') {
-                const childDeductions = tabLayers.filter(dl => dl.type === 'deduction' && dl.visible && (dl.parentId === layer.id || !dl.parentId));
-                childDeductions.forEach(dl => {
-                   area -= getPolygonArea(dl.points) / (tab.scaleRatio * tab.scaleRatio);
-                });
-             }
-             cost += area * rate;
-           } else if (layer.type === 'polyline') {
-             const len = getPolylineLength(layer.points) / tab.scaleRatio;
-             cost += len * rate;
-           } else if (layer.type === 'point') {
-             cost += 1 * rate;
-           }
-        }
-      }
-    });
-
-    const realBoundArea = tab.scaleRatio && boundAreaPx > 0 ? boundAreaPx / (tab.scaleRatio * tab.scaleRatio) : 0;
-    
-    let fallbackArea = 0;
-    if (realBoundArea === 0 && tab.scaleRatio) {
-      tabLayers.forEach(l => {
-        if (l.type === 'polygon') fallbackArea += getPolygonArea(l.points) / (tab.scaleRatio * tab.scaleRatio);
-        if (l.type === 'deduction') fallbackArea -= getPolygonArea(l.points) / (tab.scaleRatio * tab.scaleRatio);
-      });
-    }
-
-    const finalArea = realBoundArea > 0 ? realBoundArea : fallbackArea;
-    return { totalArea: finalArea, grandTotalCost: cost * (project.exchangeRate || 1), projectBoundaryArea: realBoundArea };
-  };
-
-  const { totalArea, grandTotalCost } = useMemo(() => calculateTabCost(activeTab), [allLayers, materials, activeTab, project.exchangeRate]);
-  
-  const projectGrandTotal = useMemo(() => {
-    return project.tabs.reduce((sum, t) => sum + calculateTabCost(t).grandTotalCost, 0);
-  }, [allLayers, materials, project.tabs, project.exchangeRate]);
+  const projectGrandTotal = useMemo(
+    () => calculateProjectTotal(project, allLayers, materials),
+    [allLayers, materials, project]
+  );
   const avgPrice = totalArea > 0 ? grandTotalCost / totalArea : 0;
 
-  const handleExportJSON = () => {
-    const data = JSON.stringify({ project, layers: allLayers, materials });
-    const blob = new Blob([data], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${project.name || 'project'}.json`;
-    a.click();
+  const handleSaveDraftcraft = async () => {
+    try {
+      await saveDraftcraft(project, allLayers, materials);
+    } catch (err) {
+      console.error(err);
+      alert('Failed to save project file.');
+    }
   };
 
-  const handleImportJSON = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleOpenDraftcraft = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      try {
-        const data = JSON.parse(event.target?.result as string);
-        if (data.project) setProject(data.project);
-        if (data.layers) setLayers(data.layers);
-        if (data.materials) setMaterials(data.materials);
-      } catch (err) {
-        alert("Invalid project file.");
-      }
-    };
-    reader.readAsText(file);
+    try {
+      const ok = await showConfirm(`Open "${file.name}"? This will replace your current project.`);
+      if (!ok) return;
+      const data = await openDraftcraft(file);
+      setProject(data.project);
+      setLayers(data.layers);
+      setMaterials(data.materials);
+      // Switch to first tab
+      const firstTab = data.project.tabs[0];
+      if (firstTab) setUI({ activeTabId: firstTab.id, activeTool: 'select', selectedLayerIds: [] });
+    } catch (err: any) {
+      alert(`Failed to open project: ${err.message || 'Unknown error'}`);
+    }
     e.target.value = '';
   };
 
@@ -132,85 +82,49 @@ export function TopBar() {
     const wb = XLSX.utils.book_new();
 
     project.tabs.forEach((tab, index) => {
-      const boqData: any[] = [];
-      const tabLayers = allLayers.filter(l => l.tabId === tab.id);
-      const { totalArea, grandTotalCost } = calculateTabCost(tab);
-      const avgPrice = totalArea > 0 ? grandTotalCost / totalArea : 0;
+      const { lineItems, totalArea, grandTotalCost } = calculateTabBOQ(tab, allLayers, materials, project.exchangeRate || 1);
+      const tabAvgPrice = totalArea > 0 ? grandTotalCost / totalArea : 0;
 
-      materials.forEach(mat => {
-        const matLayers = tabLayers.filter(l => l.materialId === mat.id && l.visible);
-        if (matLayers.length === 0) return;
-        
-        const layersByOption = new Map<string, typeof tabLayers>();
-        matLayers.forEach(l => {
-           const opt = l.selectedOption || 'Standard';
-           if (!layersByOption.has(opt)) layersByOption.set(opt, []);
-           layersByOption.get(opt)!.push(l);
-        });
-
-        Array.from(layersByOption.entries()).forEach(([optName, optLayers]) => {
-           let qty = 0;
-           optLayers.forEach(l => {
-             if (['polygon', 'rect', 'circle'].includes(l.type) && tab.scaleRatio) {
-               qty += getPolygonArea(l.points) / Math.pow(tab.scaleRatio, 2);
-             } else if (l.type === 'polyline' && tab.scaleRatio) {
-               qty += getPolylineLength(l.points) / tab.scaleRatio;
-             } else if (l.type === 'point') {
-               qty += 1;
-             }
-             
-             if (mat.type === 'area' && tab.scaleRatio) {
-                tabLayers.filter(dl => dl.type === 'deduction' && dl.visible && (dl.parentId === l.id || !dl.parentId)).forEach(dl => {
-                   qty -= getPolygonArea(dl.points) / Math.pow(tab.scaleRatio!, 2);
-                });
-             }
-           });
-
-           if (qty <= 0) return;
-
-           let rate = mat.baseRate;
-           const optData = mat.options?.find(o => o.name === optName);
-           if (optData) {
-              if (optData.type === 'percentage') {
-                 rate = rate * (1 + optData.value / 100);
-              } else {
-                 rate = rate + optData.value;
-              }
-           }
-
-           const finalRate = rate * (project.exchangeRate || 1);
-           boqData.push({
-              Material: mat.name + (optName !== 'Standard' ? ` (${optName})` : ''),
-              Quantity: qty.toFixed(2),
-              Unit: mat.type === 'area' ? 'm²' : mat.type === 'linear' ? 'm' : 'ea',
-              BaseRate: finalRate.toFixed(2),
-              TotalCost: (qty * finalRate).toFixed(2)
-           });
-        });
-      });
+      const boqData: any[] = lineItems.map(li => ({
+        Category: li.category,
+        Material: li.materialName + (li.optionName !== 'Standard' ? ` (${li.optionName})` : ''),
+        Quantity: li.qty.toFixed(2),
+        Unit: li.unit,
+        [`Unit Price (${project.currency})`]: li.rate.toFixed(2),
+        [`Total Cost (${project.currency})`]: li.cost.toFixed(2),
+      }));
 
       if (boqData.length > 0) {
         boqData.push({});
-        boqData.push({ Material: '--- SUMMARY ---' });
-        boqData.push({ Material: '', BaseRate: '', Unit: '', Quantity: '', Total: '' });
-        boqData.push({ Material: 'Average Price', BaseRate: avgPrice.toFixed(2), Unit: `${project.currency}/m²` });
-        boqData.push({ Material: 'Tab Total', BaseRate: '', Unit: '', Quantity: '', Total: grandTotalCost.toFixed(2) });
+        boqData.push({ Category: '--- SUMMARY ---' });
+        boqData.push({ Category: 'Total Area', Quantity: totalArea.toFixed(2), Unit: 'm²' });
+        boqData.push({ Category: 'Average Price', [`Unit Price (${project.currency})`]: tabAvgPrice.toFixed(2), Unit: `${project.currency}/m²` });
+        boqData.push({ Category: 'Tab Total', [`Total Cost (${project.currency})`]: grandTotalCost.toFixed(2) });
       }
 
-      const ws = XLSX.utils.json_to_sheet(boqData as any[]);
-      // Ensure unique sheet name, truncate if necessary
-      const safeTabName = (tab.name || `Tab ${index + 1}`).substring(0, 31).replace(/[\\/*?:\[\]]/g, '');
+      const ws = XLSX.utils.json_to_sheet(boqData);
+      const safeTabName = (tab.name || `Tab ${index + 1}`).substring(0, 31).replace(/[\\/*?:[\]]/g, '');
       XLSX.utils.book_append_sheet(wb, ws, safeTabName);
     });
 
-    // Add Project Master Summary Sheet
-    const masterData: any[] = [];
-    masterData.push({ Description: 'Project Total', TotalCost: projectGrandTotal.toFixed(2) });
-    const wsMaster = XLSX.utils.json_to_sheet(masterData);
-    XLSX.utils.book_append_sheet(wb, wsMaster, "Master Summary");
+    // Master summary sheet
+    const masterData = project.tabs.map(tab => {
+      const { totalArea, grandTotalCost } = calculateTabBOQ(tab, allLayers, materials, project.exchangeRate || 1);
+      const avg = totalArea > 0 ? grandTotalCost / totalArea : 0;
+      return {
+        Tab: tab.name,
+        [`Total Area (m²)`]: totalArea.toFixed(2),
+        [`Avg Cost (${project.currency}/m²)`]: avg.toFixed(2),
+        [`Total Cost (${project.currency})`]: grandTotalCost.toFixed(2),
+      };
+    });
+    masterData.push({} as any);
+    masterData.push({ Tab: 'GRAND TOTAL', [`Total Cost (${project.currency})`]: projectGrandTotal.toFixed(2) } as any);
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(masterData), 'Master Summary');
 
     XLSX.writeFile(wb, `${project.name || 'BOQ'}.xlsx`);
   };
+
 
   const handleExportDrawing = async () => {
     const container = document.querySelector('.konvajs-content') as HTMLElement;
@@ -308,7 +222,7 @@ export function TopBar() {
         startY += 8;
         
         const tabLayers = allLayers.filter(l => l.tabId === tab.id);
-        const { totalArea: tabArea, grandTotalCost: tabCost } = calculateTabCost(tab);
+        const { totalArea: tabArea, grandTotalCost: tabCost, lineItems: tabLineItems } = calculateTabBOQ(tab, allLayers, materials, project.exchangeRate || 1);
         const tabAvgPrice = tabArea > 0 ? tabCost / tabArea : 0;
 
         summaryTableData.push([
@@ -336,59 +250,18 @@ export function TopBar() {
         doc.text(`Avg Cost: ${project.currency}${tabAvgPrice.toFixed(2)} / m²`, margin, startY);
         startY += 12;
 
-        // BOQ Table Generation
-        const boqData: any[] = [];
-        materials.forEach(mat => {
-           const matLayers = tabLayers.filter(l => l.materialId === mat.id && l.visible);
-           if (matLayers.length === 0) return;
-
-           const optionsMap = new Map<string, number>();
-           matLayers.forEach(layer => {
-              const optName = layer.selectedOption || 'Standard';
-              let qty = 0;
-              if (mat.type === 'area') {
-                 let areaPx = getPolygonArea(layer.points);
-                 const childDeductions = tabLayers.filter(dl => dl.type === 'deduction' && dl.visible && dl.parentId === layer.id);
-                 childDeductions.forEach(dl => {
-                    areaPx -= getPolygonArea(dl.points);
-                 });
-                 qty = tab.scaleRatio ? areaPx / (tab.scaleRatio * tab.scaleRatio) : 0;
-              } else if (mat.type === 'linear') {
-                 let lenPx = getPolylineLength(layer.points);
-                 if (['polygon', 'rect', 'circle', 'boundary'].includes(layer.type) && layer.points.length > 2) {
-                    lenPx += Math.hypot(layer.points[0].x - layer.points[layer.points.length-1].x, layer.points[0].y - layer.points[layer.points.length-1].y);
-                 }
-                 qty = tab.scaleRatio ? lenPx / tab.scaleRatio : 0;
-              } else {
-                 qty = 1;
-              }
-              optionsMap.set(optName, (optionsMap.get(optName) || 0) + qty);
-           });
-
-           optionsMap.forEach((qty, optName) => {
-              if (qty <= 0) return;
-              let rate = mat.baseRate;
-              const optData = mat.options?.find(o => o.name === optName);
-              if (optData) {
-                 if (optData.type === 'percentage') rate = rate * (1 + optData.value / 100);
-                 else rate = rate + optData.value;
-              }
-              const finalRate = rate * (project.exchangeRate || 1);
-              boqData.push([
-                 mat.name + (optName !== 'Standard' ? ` (${optName})` : ''),
-                 qty.toFixed(2),
-                 mat.type === 'area' ? 'm²' : mat.type === 'linear' ? 'm' : 'ea',
-                 finalRate.toFixed(2),
-                 (qty * finalRate).toFixed(2)
-              ]);
-           });
-        });
-
-        if (boqData.length > 0) {
+        // BOQ Table from centralized data
+        if (tabLineItems.length > 0) {
            autoTable(doc, {
               startY: startY,
               head: [['Material', 'Quantity', 'Unit', `Unit Price (${project.currency})`, `Total Cost (${project.currency})`]],
-              body: boqData,
+              body: tabLineItems.map(li => [
+                 li.materialName + (li.optionName !== 'Standard' ? ` (${li.optionName})` : ''),
+                 li.qty.toFixed(2),
+                 li.unit,
+                 li.rate.toFixed(2),
+                 li.cost.toFixed(2),
+              ]),
               theme: 'grid',
               headStyles: { fillColor: [59, 130, 246] }
            });
@@ -523,12 +396,14 @@ export function TopBar() {
               <Trash2 size={16} />
             </button>
 
-            <label className="px-3 py-1 hover:bg-zinc-800 hover:text-zinc-100 rounded transition-colors flex items-center space-x-1 cursor-pointer" title="Open JSON Project">
+            <label className="px-3 py-1 hover:bg-zinc-800 hover:text-zinc-100 rounded transition-colors flex items-center space-x-1 cursor-pointer" title="Open .draftcraft project">
               <FolderOpen size={16} />
-              <input type="file" accept=".json" className="hidden" onChange={handleImportJSON} />
+              <span className="ml-1">Open</span>
+              <input type="file" accept=".draftcraft" className="hidden" onChange={handleOpenDraftcraft} />
             </label>
-            <button onClick={handleExportJSON} className="px-3 py-1 hover:bg-zinc-800 hover:text-zinc-100 rounded transition-colors flex items-center space-x-1" title="Save JSON Project">
+            <button onClick={handleSaveDraftcraft} className="px-3 py-1 hover:bg-zinc-800 hover:text-zinc-100 rounded transition-colors flex items-center space-x-1 text-emerald-400" title="Save .draftcraft project">
               <Save size={16} />
+              <span className="ml-1">Save</span>
             </button>
             <button onClick={handleExportDrawing} className="px-3 py-1 hover:bg-zinc-800 hover:text-zinc-100 rounded transition-colors flex items-center space-x-1" title="Export Image (PNG)">
               <ImageIcon size={16} />

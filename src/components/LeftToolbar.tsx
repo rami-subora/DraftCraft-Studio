@@ -2,11 +2,10 @@ import { useState, useEffect } from 'react';
 import { 
   MousePointer2, MousePointerClick, Hand, SquareDashedMousePointer, Image as ImageIcon, 
   MapPin, Spline, Frame, Ruler, RectangleHorizontal, Circle as CircleIcon, Maximize, Activity, Calculator, PlusCircle,
-  Type, MoveUpRight, Cloud
+  Type, MoveUpRight, Cloud, MoveHorizontal
 } from 'lucide-react';
 import { useStore } from '../store/useStore';
-import type { Material } from '../store/useStore';
-import { getPolygonArea, getPolylineLength } from '../utils/geometry';
+import { calculateTabBOQ } from '../utils/boq';
 import { clsx } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
@@ -31,6 +30,7 @@ const TOOLS = [
   { id: 'warp', icon: ImageIcon, label: 'Perspective Warp', hotkey: 'W' },
   { id: 'scale', icon: Activity, label: 'Set Scale', hotkey: 'C' },
   { id: 'ruler', icon: Ruler, label: 'Measure Ruler', hotkey: 'U' },
+  { id: 'dimension', icon: MoveHorizontal, label: 'Dimension Line', hotkey: 'D' },
 ] as const;
 
 export function LeftToolbar() {
@@ -106,89 +106,38 @@ export function LeftToolbar() {
         </div>
         <div className="p-3 flex-1 overflow-y-auto text-zinc-400">
           {(() => {
-            const categories = new Map<string, Material[]>();
-            materials.forEach(mat => {
-              const cat = mat.category || 'Uncategorized';
-              if (!categories.has(cat)) categories.set(cat, []);
-              categories.get(cat)!.push(mat);
+            const { lineItems } = calculateTabBOQ(activeTab, allLayers, materials, project.exchangeRate || 1);
+
+            // Group by category
+            const byCategory = new Map<string, typeof lineItems>();
+            lineItems.forEach(li => {
+              if (!byCategory.has(li.category)) byCategory.set(li.category, []);
+              byCategory.get(li.category)!.push(li);
             });
-            
-            return Array.from(categories.entries()).sort().map(([catName, catMats]) => {
-              const hasVisibleLayers = catMats.some(mat => layers.some(l => l.materialId === mat.id && l.visible));
-              if (!hasVisibleLayers) return null;
-              
-              return (
-                <div key={catName} className="mb-5 last:mb-0">
-                  <div className="text-xs font-semibold uppercase tracking-wider text-zinc-500 mb-2 border-b border-zinc-800 pb-1">{catName}</div>
-                  {catMats.map(mat => {
-                    const matLayers = layers.filter(l => l.materialId === mat.id && l.visible);
-                    if (matLayers.length === 0) return null;
-                    
-                    const layersByOption = new Map<string, typeof layers>();
-                    matLayers.forEach(l => {
-                       const opt = l.selectedOption || 'Standard';
-                       if (!layersByOption.has(opt)) layersByOption.set(opt, []);
-                       layersByOption.get(opt)!.push(l);
-                    });
 
-                    return Array.from(layersByOption.entries()).map(([optName, optLayers]) => {
-                       let qty = 0;
-                       optLayers.forEach(l => {
-                         if (['polygon', 'rect', 'circle'].includes(l.type) && activeTab.scaleRatio) {
-                           qty += getPolygonArea(l.points) / Math.pow(activeTab.scaleRatio, 2);
-                         } else if (l.type === 'polyline' && activeTab.scaleRatio) {
-                           qty += getPolylineLength(l.points) / activeTab.scaleRatio;
-                         } else if (l.type === 'point') {
-                           qty += 1;
-                         }
-                         
-                         // Subtract properly bound deductions
-                         if (mat.type === 'area' && activeTab.scaleRatio) {
-                            layers.filter(dl => dl.type === 'deduction' && dl.visible && (dl.parentId === l.id || !dl.parentId)).forEach(dl => {
-                               qty -= getPolygonArea(dl.points) / Math.pow(activeTab.scaleRatio!, 2);
-                            });
-                         }
-                       });
+            if (lineItems.length === 0) return (
+              <div className="text-center py-4 text-xs text-zinc-600">Assign materials to visible layers to see BOQ.</div>
+            );
 
-                       if (qty <= 0) return null;
-
-                       let rate = mat.baseRate;
-                       const optData = mat.options?.find(o => o.name === optName);
-                       if (optData) {
-                          if (optData.type === 'percentage') {
-                             rate = rate * (1 + optData.value / 100);
-                          } else {
-                             rate = rate + optData.value;
-                          }
-                       }
-
-                       const finalRate = rate * (project.exchangeRate || 1);
-                       const cost = qty * finalRate;
-                       const unit = mat.type === 'area' ? 'm²' : mat.type === 'linear' ? 'm' : 'ea';
-
-                       return (
-                         <div key={`${mat.id}-${optName}`} className="mb-2 border border-zinc-800 rounded p-2 bg-zinc-850/50 text-[11px]">
-                           <div className="flex justify-between items-center mb-1">
-                             <span className="font-semibold text-zinc-300 truncate mr-2" style={{ color: mat.color }}>
-                               {mat.name} {optName !== 'Standard' ? <span className="text-zinc-500 font-normal">({optName})</span> : ''}
-                             </span>
-                             <span className="text-amber-400 font-mono">{project.currency}{cost.toFixed(2)}</span>
-                           </div>
-                           <div className="flex justify-between text-zinc-500">
-                             <span>{qty.toFixed(2)} {unit} @ {project.currency}{finalRate.toFixed(2)}</span>
-                           </div>
-                         </div>
-                       );
-                    });
-                  })}
-                </div>
-              );
-            });
+            return Array.from(byCategory.entries()).sort().map(([catName, items]) => (
+              <div key={catName} className="mb-5 last:mb-0">
+                <div className="text-xs font-semibold uppercase tracking-wider text-zinc-500 mb-2 border-b border-zinc-800 pb-1">{catName}</div>
+                {items.map(li => (
+                  <div key={`${li.materialId}-${li.optionName}`} className="mb-2 border border-zinc-800 rounded p-2 bg-zinc-850/50 text-[11px]">
+                    <div className="flex justify-between items-center mb-1">
+                      <span className="font-semibold truncate mr-2" style={{ color: li.materialColor }}>
+                        {li.materialName} {li.optionName !== 'Standard' ? <span className="text-zinc-500 font-normal">({li.optionName})</span> : ''}
+                      </span>
+                      <span className="text-amber-400 font-mono">{project.currency}{li.cost.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between text-zinc-500">
+                      <span>{li.qty.toFixed(2)} {li.unit} @ {project.currency}{li.rate.toFixed(2)}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ));
           })()}
-
-          {!layers.some(l => l.materialId && l.visible) && (
-            <div className="text-center py-4 text-xs text-zinc-600">Assign materials to visible layers to see BOQ.</div>
-          )}
 
           <div className="mt-4 pt-4 border-t border-zinc-800/50 pb-4">
             {showCustomForm ? (

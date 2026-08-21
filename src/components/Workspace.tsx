@@ -5,6 +5,7 @@ import { RightSidebar } from './RightSidebar';
 import { CanvasViewport } from './CanvasViewport';
 import { TabBar } from './TabBar';
 import { useStore } from '../store/useStore';
+import { openDraftcraft } from '../utils/draftcraft';
 import { UploadCloud } from 'lucide-react';
 import * as pdfjsLib from 'pdfjs-dist';
 
@@ -93,6 +94,17 @@ export function Workspace() {
         console.error('Error rendering PDF:', err);
         alert('Failed to parse PDF.');
       }
+    } else if (file.name.endsWith('.draftcraft')) {
+      try {
+        const data = await openDraftcraft(file);
+        useStore.getState().setProject(data.project);
+        useStore.getState().setLayers(data.layers);
+        useStore.getState().setMaterials(data.materials);
+        const firstTab = data.project.tabs[0];
+        if (firstTab) useStore.getState().setUI({ activeTabId: firstTab.id, activeTool: 'select', selectedLayerIds: [] });
+      } catch (err: any) {
+        alert(`Failed to open project: ${err.message || 'Unknown error'}`);
+      }
     }
   };
 
@@ -115,8 +127,9 @@ export function Workspace() {
         {isDragging && (
           <div className="absolute inset-0 bg-zinc-900/90 backdrop-blur-sm z-50 flex flex-col items-center justify-center border-4 border-amber-500 border-dashed m-4 rounded-xl transition-all">
             <UploadCloud size={64} className="text-amber-500 mb-4 animate-bounce" />
-            <h2 className="text-2xl font-bold text-zinc-100 mb-2">Drop blueprint here</h2>
-            <p className="text-zinc-400">Supports PNG, JPG, WebP, and single-page PDF</p>
+            <h2 className="text-2xl font-bold text-zinc-100 mb-2">Drop file here</h2>
+            <p className="text-zinc-400">Drop a <span className="text-amber-400 font-semibold">.draftcraft</span> project to open it</p>
+            <p className="text-zinc-500 text-sm mt-1">Or drop an image / PDF to import as a drawing</p>
           </div>
         )}
       </div>

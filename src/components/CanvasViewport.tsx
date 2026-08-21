@@ -50,7 +50,7 @@ export function CanvasViewport() {
       }
 
       if (key === 'escape') {
-        setUI({ currentShapePoints: [] });
+        setUI({ currentShapePoints: [], activeTool: 'select' });
         setRulerPoints([]);
       } else if (key === 'enter' && ui.currentShapePoints.length > 0) {
         finishDrawingShape();
@@ -91,8 +91,13 @@ export function CanvasViewport() {
                  const newPoints = layer.points.map(p => ({ x: p.x + dx, y: p.y + dy }));
                  updates.push({ id, changes: { points: newPoints } });
                  
-                 // Nudge deductions too
-                 const children = useStore.getState().layers.filter(l => l.type === 'deduction' && l.parentId === id);
+                 // Nudge bound child deductions ONLY if the child itself is NOT also selected
+                 // (prevents double-nudging when parent and child are both selected)
+                 const children = useStore.getState().layers.filter(l =>
+                    l.type === 'deduction' &&
+                    l.parentId === id &&
+                    !ui.selectedLayerIds.includes(l.id)  // skip if already selected
+                 );
                  children.forEach(child => {
                     const childNewPoints = child.points.map(p => ({ x: p.x + dx, y: p.y + dy }));
                     updates.push({ id: child.id, changes: { points: childNewPoints } });
@@ -145,9 +150,12 @@ export function CanvasViewport() {
       }
 
       if (hideMarkers) {
+         // Find the shapes layer by index (it's always the second layer, after the background)
+         // Use a name-based search to be safe: hide all layers except the first (background)
          const children = stage.getChildren();
-         if (children.length > 1) {
-             children[1].hide();
+         // Layer 0 = background image layer, Layer 1+ = shapes/markers layers
+         for (let li = 1; li < children.length; li++) {
+            children[li].hide();
          }
       }
 
@@ -214,7 +222,7 @@ export function CanvasViewport() {
     const pos = stage.getRelativePointerPosition();
     if (!pos) return;
 
-    if (project.magneticSnapEnabled && ['polygon', 'polyline', 'deduct', 'rect', 'circle', 'boundary', 'ruler'].includes(ui.activeTool)) {
+    if (project.magneticSnapEnabled && ['polygon', 'polyline', 'deduct', 'rect', 'circle', 'boundary', 'ruler', 'dimension'].includes(ui.activeTool)) {
        const snapThreshold = 15 / ui.zoom;
        const snapPos = getSnapTarget(pos, layers.filter(l => l.visible), snapThreshold);
        setSnapPoint(snapPos);
@@ -283,9 +291,9 @@ export function CanvasViewport() {
     }
   };
 
-  const finishDrawingShape = () => {
+  const finishDrawingShape = (finalPoint?: Point) => {
     if (ui.currentShapePoints.length === 0) return;
-    const pts = ui.currentShapePoints;
+    const pts = finalPoint ? [...ui.currentShapePoints, finalPoint] : ui.currentShapePoints;
     let type: ShapeLayer['type'] = 'polygon';
     const now = Date.now();
 
@@ -293,6 +301,7 @@ export function CanvasViewport() {
     else if (ui.activeTool === 'deduct') type = 'deduction';
     else if (ui.activeTool === 'arrow') type = 'arrow';
     else if (ui.activeTool === 'cloud') type = 'cloud';
+    else if (ui.activeTool === 'dimension') type = 'dimension';
 
     let parentId = undefined;
     if (type === 'deduction') {
@@ -301,6 +310,20 @@ export function CanvasViewport() {
          parentId = parent.id;
       }
     }
+
+    let folderId = undefined;
+    if (type === 'dimension') {
+      const state = useStore.getState();
+      let dimFolder = state.folders.find(f => f.name === 'Dimensions' && f.tabId === ui.activeTabId);
+      if (!dimFolder) {
+        dimFolder = { id: `folder-${Date.now()}`, tabId: ui.activeTabId, name: 'Dimensions', visible: true, locked: false, isExpanded: true };
+        state.addFolder(dimFolder);
+      }
+      folderId = dimFolder.id;
+    }
+
+    // Annotations (text/arrow/cloud/dimension) should be fully opaque by default
+    const isAnnotation = ['arrow', 'cloud', 'dimension'].includes(type);
 
     addLayer({
       id: `layer-${now}`,
@@ -311,9 +334,10 @@ export function CanvasViewport() {
       name: `${type.charAt(0).toUpperCase() + type.slice(1)} ${layers.length + 1}`,
       visible: true,
       locked: false,
-      opacity: 0.45,
+      opacity: isAnnotation ? 1 : 0.45,
       deductions: [],
-      parentId
+      parentId,
+      folderId
     });
     setUI({ currentShapePoints: [] });
   };
@@ -418,18 +442,33 @@ export function CanvasViewport() {
         });
         setUI({ currentShapePoints: [] });
       }
-    } else if (['polygon', 'polyline', 'deduct', 'cloud', 'arrow'].includes(ui.activeTool)) {
-      if (ui.currentShapePoints.length > 2 && (ui.activeTool === 'polygon' || ui.activeTool === 'deduct' || ui.activeTool === 'cloud')) {
+    } else if (ui.activeTool === 'arrow' || ui.activeTool === 'dimension') {
+      // Arrow/Dimension: first click sets start point, second click sets end point and finishes
+      if (ui.currentShapePoints.length === 0) {
+        setUI({ currentShapePoints: [pointerPosition] });
+      } else {
+        finishDrawingShape(pointerPosition);
+      }
+      return;
+    } else if (ui.activeTool === 'cloud') {
+      // Cloud: click to add points, close by clicking near start
+      if (ui.currentShapePoints.length > 2) {
+        const first = ui.currentShapePoints[0];
+        const dist = Math.hypot(pointerPosition.x - first.x, pointerPosition.y - first.y);
+        if (dist < 15 / ui.zoom) {
+          finishDrawingShape();
+          return;
+        }
+      }
+      setUI({ currentShapePoints: [...ui.currentShapePoints, pointerPosition] });
+    } else if (['polygon', 'polyline', 'deduct'].includes(ui.activeTool)) {
+      if (ui.currentShapePoints.length > 2 && (ui.activeTool === 'polygon' || ui.activeTool === 'deduct')) {
         const first = ui.currentShapePoints[0];
         const dist = Math.hypot(pointerPosition.x - first.x, pointerPosition.y - first.y);
         if (dist < 10 / ui.zoom) {
           finishDrawingShape();
           return;
         }
-      } else if (ui.activeTool === 'arrow' && ui.currentShapePoints.length === 1) {
-        setUI({ currentShapePoints: [...ui.currentShapePoints, pointerPosition] });
-        setTimeout(() => finishDrawingShape(), 10);
-        return;
       }
       setUI({ currentShapePoints: [...ui.currentShapePoints, pointerPosition] });
     } else if (ui.activeTool === 'text') {
@@ -519,18 +558,19 @@ export function CanvasViewport() {
     const pos = node.position();
     let newPoints;
     
-    if (layer.type === 'point') {
+    // point and text both use x/y props directly — store as absolute position
+    if (layer.type === 'point' || layer.type === 'text') {
        newPoints = [{ x: pos.x, y: pos.y }];
     } else {
        newPoints = layer.points.map(p => ({ x: p.x + pos.x, y: p.y + pos.y }));
-       node.position({ x: 0, y: 0 }); // Reset because points are absolute
+       node.position({ x: 0, y: 0 });
     }
 
     const updates: { id: string; changes: any }[] = [];
     updates.push({ id: layerId, changes: { points: newPoints } });
 
     const children = layers.filter(l => l.type === 'deduction' && l.parentId === layerId);
-    if (children.length > 0 && layer.type !== 'point') {
+    if (children.length > 0 && layer.type !== 'point' && layer.type !== 'text') {
        children.forEach(child => {
           const childNewPoints = child.points.map(p => ({ x: p.x + pos.x, y: p.y + pos.y }));
           updates.push({ id: child.id, changes: { points: childNewPoints } });
@@ -584,6 +624,52 @@ export function CanvasViewport() {
     setUI({ activeTool: 'select' });
   };
 
+  const renderEdgeDimensions = (layer: ShapeLayer, color: string) => {
+    const showDims = layer.showDimensions ?? project.showDimensions ?? true;
+    if (!showDims || !activeTab.scaleRatio) return null;
+    const pts = layer.points;
+    if (pts.length < 2) return null;
+
+    const isClosed = ['polygon', 'deduction', 'boundary', 'rect', 'circle'].includes(layer.type);
+    const elements = [];
+    const edgeCount = isClosed ? pts.length : pts.length - 1;
+
+    for (let i = 0; i < edgeCount; i++) {
+      const p1 = pts[i];
+      const p2 = pts[(i + 1) % pts.length];
+      const distPx = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+      const distM = (distPx / activeTab.scaleRatio).toFixed(2);
+      
+      const midX = (p1.x + p2.x) / 2;
+      const midY = (p1.y + p2.y) / 2;
+      
+      let angle = Math.atan2(p2.y - p1.y, p2.x - p1.x);
+      if (angle > Math.PI / 2 || angle < -Math.PI / 2) angle += Math.PI;
+
+      elements.push(
+        <Text
+          key={`${layer.id}-edge-${i}`}
+          x={midX}
+          y={midY}
+          text={`${distM}m`}
+          fontSize={12 / ui.zoom}
+          fill={color}
+          rotation={angle * (180 / Math.PI)}
+          align="center"
+          verticalAlign="middle"
+          fontFamily="monospace"
+          fontStyle="bold"
+          shadowColor="rgba(0,0,0,0.8)"
+          shadowBlur={3 / ui.zoom}
+          offsetX={0}
+          offsetY={12 / ui.zoom}
+          listening={false}
+        />
+      );
+    }
+    return elements;
+  };
+
   const renderShapes = () => {
     return layers.filter(l => l.tabId === ui.activeTabId).map(layer => {
       if (!layer.visible) return null;
@@ -598,6 +684,7 @@ export function CanvasViewport() {
         else if (['polygon', 'rect', 'circle'].includes(layer.type)) color = '#3b82f6';
         else if (layer.type === 'polyline') color = '#10b981';
         else if (layer.type === 'point') color = '#8b5cf6';
+        else if (layer.type === 'dimension') color = project.rulerColor;
         else color = '#52525b';
       }
       
@@ -635,43 +722,51 @@ export function CanvasViewport() {
 
       if (['polygon', 'deduction', 'boundary', 'rect', 'circle'].includes(layer.type)) {
         return (
-          <Line
+          <Group
             key={layer.id}
             id={layer.id}
-            points={layer.points.flatMap(p => [p.x, p.y])}
-            fill={layer.type === 'deduction' ? 'transparent' : color}
-            stroke={isSelected ? '#fff' : isHovered ? '#fbbf24' : color}
-            strokeWidth={isSelected ? 4.5 / ui.zoom : isHovered ? 4 / ui.zoom : 3 / ui.zoom}
-            shadowBlur={isHovered ? 10 / ui.zoom : 0}
-            shadowColor={color}
-            closed
-            opacity={opacity}
             draggable={isSelectMode && isSelected}
             onDragStart={handleDragStartAlt}
             onDragEnd={handleDragEnd}
             onTransformEnd={handleTransformEnd}
             onClick={handleClick}
             {...mouseHandlers}
-          />
+          >
+            <Line
+              points={layer.points.flatMap(p => [p.x, p.y])}
+              fill={layer.type === 'deduction' ? 'transparent' : color}
+              stroke={isSelected ? '#fff' : isHovered ? '#fbbf24' : color}
+              strokeWidth={isSelected ? 4.5 / ui.zoom : isHovered ? 4 / ui.zoom : 3 / ui.zoom}
+              shadowBlur={isHovered ? 10 / ui.zoom : 0}
+              shadowColor={color}
+              closed
+              opacity={opacity}
+            />
+            {renderEdgeDimensions(layer, isSelected ? '#fff' : color)}
+          </Group>
         );
       } else if (layer.type === 'polyline') {
         return (
-          <Line
+          <Group
             key={layer.id}
             id={layer.id}
-            points={layer.points.flatMap(p => [p.x, p.y])}
-            stroke={isSelected ? '#fff' : isHovered ? '#fbbf24' : color}
-            strokeWidth={isSelected ? 5.5 / ui.zoom : isHovered ? 4.5 / ui.zoom : 3.5 / ui.zoom}
-            shadowBlur={isHovered ? 10 / ui.zoom : 0}
-            shadowColor={color}
-            opacity={opacity}
             draggable={isSelectMode && isSelected}
             onDragStart={handleDragStartAlt}
             onDragEnd={handleDragEnd}
             onTransformEnd={handleTransformEnd}
             onClick={handleClick}
             {...mouseHandlers}
-          />
+          >
+            <Line
+              points={layer.points.flatMap(p => [p.x, p.y])}
+              stroke={isSelected ? '#fff' : isHovered ? '#fbbf24' : color}
+              strokeWidth={isSelected ? 5.5 / ui.zoom : isHovered ? 4.5 / ui.zoom : 3.5 / ui.zoom}
+              shadowBlur={isHovered ? 10 / ui.zoom : 0}
+              shadowColor={color}
+              opacity={opacity}
+            />
+            {renderEdgeDimensions(layer, isSelected ? '#fff' : color)}
+          </Group>
         );
       } else if (layer.type === 'point') {
         return (
@@ -696,6 +791,8 @@ export function CanvasViewport() {
           />
         );
       } else if (layer.type === 'text') {
+        // Fixed font size in canvas units (not zoom-relative so text stays readable at all zoom levels)
+        const fontSize = 16 / ui.zoom;
         return (
           <Text
             key={layer.id}
@@ -703,13 +800,18 @@ export function CanvasViewport() {
             x={layer.points[0].x}
             y={layer.points[0].y}
             text={layer.text || 'Text'}
-            fontSize={20 / ui.zoom}
-            fill={isSelected ? '#fff' : color}
+            fontSize={fontSize}
+            fontFamily="Inter, sans-serif"
+            fontStyle={isSelected ? 'bold' : 'normal'}
+            fill={isSelected ? '#fbbf24' : color}
+            stroke={isSelected ? 'rgba(0,0,0,0.4)' : undefined}
+            strokeWidth={isSelected ? 0.5 / ui.zoom : 0}
+            shadowColor="rgba(0,0,0,0.8)"
+            shadowBlur={4 / ui.zoom}
             opacity={opacity}
-            draggable={isSelectMode && isSelected}
+            draggable={isSelectMode && !layer.locked}
             onDragStart={handleDragStartAlt}
             onDragEnd={handleDragEnd}
-            onTransformEnd={handleTransformEnd}
             onClick={handleClick}
             {...mouseHandlers}
           />
@@ -735,26 +837,111 @@ export function CanvasViewport() {
           />
         );
       } else if (layer.type === 'cloud') {
+        // Build arc-based revision cloud path from the control points
+        if (layer.points.length < 2) return null;
+        const cloudPts = [...layer.points, layer.points[0]]; // close the loop
+        const arcPoints: number[] = [];
+        const arcRadius = 12 / ui.zoom;
+        for (let i = 0; i < cloudPts.length - 1; i++) {
+          const from = cloudPts[i];
+          const to = cloudPts[i + 1];
+          const segLen = Math.hypot(to.x - from.x, to.y - from.y);
+          const steps = Math.max(1, Math.round(segLen / (arcRadius * 2.5)));
+          for (let s = 0; s < steps; s++) {
+            const t0 = s / steps;
+            const t1 = (s + 1) / steps;
+            const mx = from.x + (to.x - from.x) * ((t0 + t1) / 2);
+            const my = from.y + (to.y - from.y) * ((t0 + t1) / 2);
+            const angle = Math.atan2(to.y - from.y, to.x - from.x);
+            const perpX = -Math.sin(angle);
+            const perpY = Math.cos(angle);
+            // Bump center outward for convex arc effect
+            const cx = mx + perpX * arcRadius * 0.5;
+            const cy = my + perpY * arcRadius * 0.5;
+            for (let a = 0; a <= 8; a++) {
+              const theta = Math.PI + (a / 8) * Math.PI;
+              arcPoints.push(cx + Math.cos(angle + theta) * arcRadius * 0.7);
+              arcPoints.push(cy + Math.sin(angle + theta) * arcRadius * 0.7);
+            }
+          }
+        }
         return (
           <Line
             key={layer.id}
             id={layer.id}
-            points={layer.points.flatMap(p => [p.x, p.y])}
-            stroke={isSelected ? '#fff' : isHovered ? '#fbbf24' : color}
-            strokeWidth={isSelected ? 4 / ui.zoom : isHovered ? 3 / ui.zoom : 2 / ui.zoom}
-            dash={[15 / ui.zoom, 10 / ui.zoom]}
+            points={arcPoints}
+            stroke={isSelected ? '#fbbf24' : isHovered ? '#fbbf24' : color}
+            strokeWidth={isSelected ? 2.5 / ui.zoom : 1.5 / ui.zoom}
             lineJoin="round"
             lineCap="round"
+            tension={0.3}
             fill="transparent"
-            closed
             opacity={opacity}
-            draggable={isSelectMode && isSelected}
+            draggable={isSelectMode && !layer.locked}
             onDragStart={handleDragStartAlt}
             onDragEnd={handleDragEnd}
-            onTransformEnd={handleTransformEnd}
             onClick={handleClick}
             {...mouseHandlers}
           />
+        );
+      } else if (layer.type === 'dimension') {
+        if (layer.points.length < 2) return null;
+        const p1 = layer.points[0];
+        const p2 = layer.points[1];
+        
+        const midX = (p1.x + p2.x) / 2;
+        const midY = (p1.y + p2.y) / 2;
+        const defaultTextY = midY - 20 / ui.zoom;
+        const textPos = layer.points[2] || { x: midX, y: defaultTextY };
+        
+        return (
+          <Group
+            key={layer.id}
+            id={layer.id}
+            opacity={opacity}
+            draggable={isSelectMode && !layer.locked}
+            onDragStart={handleDragStartAlt}
+            onDragEnd={handleDragEnd}
+            onClick={handleClick}
+            {...mouseHandlers}
+          >
+            <Line
+              points={[p1.x, p1.y, p2.x, p2.y]}
+              stroke={isSelected ? '#fbbf24' : color}
+              strokeWidth={isSelected ? 3 / ui.zoom : 2 / ui.zoom}
+              dash={[5 / ui.zoom, 5 / ui.zoom]}
+            />
+            {layer.points[2] && (
+              <Line
+                points={[midX, midY, textPos.x, textPos.y]}
+                stroke={isSelected ? '#fbbf24' : color}
+                strokeWidth={1 / ui.zoom}
+                dash={[2 / ui.zoom, 2 / ui.zoom]}
+              />
+            )}
+            <Text
+              x={textPos.x}
+              y={textPos.y}
+              draggable={isSelectMode && !layer.locked}
+              onDragStart={(e) => {
+                 e.cancelBubble = true;
+                 if (isSelectMode) setUI({ selectedLayerIds: [layer.id] });
+              }}
+              onDragEnd={(e) => {
+                 e.cancelBubble = true;
+                 const newPts = [...layer.points];
+                 newPts[2] = { x: e.target.x(), y: e.target.y() };
+                 updateLayer(layer.id, { points: newPts });
+              }}
+              text={activeTab.scaleRatio ? (Math.hypot(p2.x - p1.x, p2.y - p1.y) / activeTab.scaleRatio).toFixed(2) + 'm' : 'Uncalibrated'}
+              fontSize={14 / ui.zoom}
+              fill={isSelected ? '#fbbf24' : color}
+              fontFamily="monospace"
+              fontStyle="bold"
+              shadowColor="rgba(0,0,0,0.8)"
+              shadowBlur={4 / ui.zoom}
+            />
+          </Group>
         );
       }
       return null;
@@ -762,7 +949,7 @@ export function CanvasViewport() {
   };
 
   return (
-    <div className="flex-1 bg-zinc-950 overflow-hidden relative" style={{ cursor: (isMiddlePanning || ui.activeTool === 'pan') ? 'grab' : ['polygon','polyline','point','deduct','warp','scale','rect','circle','boundary','ruler','text','arrow','cloud'].includes(ui.activeTool) ? 'crosshair' : 'default' }}>
+    <div className="flex-1 bg-zinc-950 overflow-hidden relative" style={{ cursor: (isMiddlePanning || ui.activeTool === 'pan') ? 'grab' : ['polygon','polyline','point','deduct','warp','scale','rect','circle','boundary','ruler','text','arrow','cloud','dimension'].includes(ui.activeTool) ? 'crosshair' : 'default' }}>
       <div className="absolute bottom-4 left-4 text-xs font-mono text-zinc-500 z-10 pointer-events-none">
         Zoom: {Math.round(ui.zoom * 100)}% | Active Tool: {ui.activeTool.toUpperCase()} | Points: {ui.currentShapePoints.length}
       </div>
@@ -929,7 +1116,7 @@ export function CanvasViewport() {
 
           {/* Current Shape Drawing */}
           {ui.currentShapePoints.length > 0 && (
-            ['polygon', 'polyline', 'deduct', 'arrow', 'cloud'].includes(ui.activeTool) ? (
+            ['polygon', 'polyline', 'deduct', 'arrow', 'cloud', 'dimension'].includes(ui.activeTool) ? (
               <Line
                 points={ui.currentShapePoints.flatMap(p => [p.x, p.y]).concat(mousePos ? [mousePos.x, mousePos.y] : [])}
                 stroke="#fbbf24"
@@ -965,7 +1152,7 @@ export function CanvasViewport() {
              <Circle x={snapPoint.x} y={snapPoint.y} radius={6 / ui.zoom} stroke="#ec4899" strokeWidth={2 / ui.zoom} />
           )}
 
-          {project.loupeEnabled && ['polygon', 'polyline', 'deduct', 'boundary', 'rect', 'circle', 'scale', 'ruler'].includes(ui.activeTool) && mousePos && image && (
+          {project.loupeEnabled && ['polygon', 'polyline', 'deduct', 'boundary', 'rect', 'circle', 'scale', 'ruler', 'dimension'].includes(ui.activeTool) && mousePos && image && (
             <Group 
               x={mousePos.x + (60 / ui.zoom)} 
               y={mousePos.y - (60 / ui.zoom)}

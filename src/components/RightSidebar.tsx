@@ -152,7 +152,15 @@ export function RightSidebar() {
                                 </div>
                                 <div className="flex items-center space-x-1">
                                   <button 
-                                    onClick={() => setUI({ selectedLayerIds: group.layers.map(l => l.id) })}
+                                    onClick={(e) => {
+                                      const groupIds = group.layers.map(l => l.id);
+                                      if (e.shiftKey) {
+                                        const newIds = new Set([...ui.selectedLayerIds, ...groupIds]);
+                                        setUI({ selectedLayerIds: Array.from(newIds) });
+                                      } else {
+                                        setUI({ selectedLayerIds: groupIds });
+                                      }
+                                    }}
                                     className="px-1.5 py-0.5 text-[10px] rounded bg-zinc-800 text-zinc-400 hover:text-amber-400 hover:bg-zinc-700 transition-colors mr-1"
                                     title="Select all"
                                   >
@@ -228,7 +236,16 @@ export function RightSidebar() {
         </div>
         <div className="p-4 text-zinc-400">
           {selectedLayers.length === 0 ? (
-            <div className="text-center py-2 text-zinc-600">Select a layer to view properties.</div>
+            <div className="space-y-4">
+              <div className="text-center py-2 text-zinc-600 border-b border-zinc-800 pb-4">Select a layer to view properties.</div>
+              <div>
+                 <div className="text-xs font-semibold uppercase tracking-wider text-zinc-500 mb-2">Global View Settings</div>
+                 <label className="flex items-center space-x-2 cursor-pointer">
+                   <input type="checkbox" checked={project.showDimensions ?? true} onChange={(e) => useStore.getState().setProject({ showDimensions: e.target.checked })} className="accent-amber-500" />
+                   <span className="text-sm text-zinc-300">Show Edge Dimensions Globally</span>
+                 </label>
+              </div>
+            </div>
           ) : selectedLayers.length === 1 && selectedLayer ? (
             <div className="space-y-4">
               <div className="flex space-x-2 mb-4">
@@ -368,6 +385,15 @@ export function RightSidebar() {
                 </div>
               </div>
 
+              {['polygon', 'polyline', 'rect', 'circle', 'boundary'].includes(selectedLayer.type) && (
+                <div className="pt-2 border-t border-zinc-800">
+                  <label className="flex items-center space-x-2 cursor-pointer">
+                    <input type="checkbox" checked={selectedLayer.showDimensions ?? project.showDimensions ?? true} onChange={(e) => updateLayer(selectedLayer.id, { showDimensions: e.target.checked })} className="accent-amber-500" />
+                    <span className="text-sm text-zinc-300">Show Edge Dimensions</span>
+                  </label>
+                </div>
+              )}
+
               <div className="pt-2 border-t border-zinc-800">
                 <div className="text-xs text-zinc-500 mb-1">Measurements</div>
                 {['text', 'arrow', 'cloud'].includes(selectedLayer.type) ? (
@@ -479,10 +505,20 @@ export function RightSidebar() {
                      className="w-8 h-8 rounded border-0 cursor-pointer bg-transparent"
                      title="Override Material Color"
                    />
-                 </div>
-               </div>
-               
-               <button 
+                  </div>
+                </div>
+                
+                <div className="pt-2 border-t border-zinc-800">
+                  <label className="flex items-center space-x-2 cursor-pointer">
+                    <input type="checkbox" onChange={(e) => {
+                       const val = e.target.checked;
+                       selectedLayers.forEach(l => updateLayer(l.id, { showDimensions: val }));
+                    }} className="accent-amber-500" />
+                    <span className="text-sm text-zinc-300">Force Edge Dimensions On/Off (All)</span>
+                  </label>
+                </div>
+                
+                <button 
                  onClick={() => {
                    selectedLayers.forEach(l => deleteLayer(l.id));
                    setUI({ selectedLayerIds: [] });

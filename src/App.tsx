@@ -45,31 +45,55 @@ function App() {
     loadData();
   }, [setProject]);
 
-  // Save to DB on state change
+  // Save to DB on state change — debounced, skips pure UI changes (pan/zoom/hover)
   useEffect(() => {
     if (!isLoaded) return;
-    return useStore.subscribe((state) => {
-      // Debounce this in production, but fine for now
-      db.projects.put({ id: 'current', ...state.project });
-      
-      // Sync layers (this is a bit naive, ideally we diff, but clear/put is easy for small scale)
-      db.transaction('rw', db.layers, async () => {
-        await db.layers.clear();
-        await db.layers.bulkPut(state.layers);
-      });
 
-      db.transaction('rw', db.materials, async () => {
-        await db.materials.clear();
-        await db.materials.bulkPut(state.materials);
-      });
+    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+    let prevProject: any = null;
+    let prevLayers: any = null;
+    let prevMaterials: any = null;
 
+    const unsubscribe = useStore.subscribe((state) => {
+      // Only persist the subset of UI state we actually care about
       const uiToSave = {
         pricelistSyncUrl: state.ui.pricelistSyncUrl,
-        lastSynced: state.ui.lastSynced
+        lastSynced: state.ui.lastSynced,
       };
       localStorage.setItem('draftcraft-ui', JSON.stringify(uiToSave));
+
+      // Skip expensive IDB writes if only UI state changed (panning, zooming, hovering etc.)
+      const projectChanged = state.project !== prevProject;
+      const layersChanged = state.layers !== prevLayers;
+      const materialsChanged = state.materials !== prevMaterials;
+      if (!projectChanged && !layersChanged && !materialsChanged) return;
+
+      prevProject = state.project;
+      prevLayers = state.layers;
+      prevMaterials = state.materials;
+
+      // Debounce: only write to IDB after 1.5s of inactivity
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        const s = useStore.getState();
+        db.projects.put({ id: 'current', ...s.project });
+        db.transaction('rw', db.layers, async () => {
+          await db.layers.clear();
+          await db.layers.bulkPut(s.layers);
+        });
+        db.transaction('rw', db.materials, async () => {
+          await db.materials.clear();
+          await db.materials.bulkPut(s.materials);
+        });
+      }, 1500);
     });
+
+    return () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      unsubscribe();
+    };
   }, [isLoaded]);
+
 
   if (!isLoaded) return <div className="h-screen w-screen bg-zinc-950 flex items-center justify-center text-zinc-500">Loading workspace...</div>;
 

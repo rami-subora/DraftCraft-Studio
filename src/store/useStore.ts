@@ -8,7 +8,7 @@ export interface Point {
 export interface ShapeLayer {
   id: string;
   tabId: string;
-  type: 'polygon' | 'polyline' | 'point' | 'deduction' | 'boundary' | 'rect' | 'circle' | 'text' | 'arrow' | 'cloud';
+  type: 'polygon' | 'polyline' | 'point' | 'deduction' | 'boundary' | 'rect' | 'circle' | 'text' | 'arrow' | 'cloud' | 'dimension';
   points: Point[];
   materialId: string | null;
   name: string;
@@ -21,6 +21,7 @@ export interface ShapeLayer {
   selectedOption?: string;
   folderId?: string;
   text?: string;
+  showDimensions?: boolean;
 }
 
 export interface LayerFolder {
@@ -32,6 +33,7 @@ export interface LayerFolder {
   locked: boolean;
   color?: string;
   isExpanded?: boolean;
+  showDimensions?: boolean;
 }
 
 export interface MaterialOption {
@@ -70,6 +72,7 @@ export interface ProjectState {
   bgOpacity: number;
   showGrid: boolean;
   rulerColor: string;
+  showDimensions?: boolean;
   ghostingOpacity: number;
   loupeEnabled: boolean;
   magneticSnapEnabled: boolean;
@@ -149,7 +152,8 @@ export const useStore = create<AppState>((set, get) => ({
     exchangeRate: 1,
     bgOpacity: 1,
     showGrid: false,
-    rulerColor: '#f43f5e',
+    rulerColor: '#fbbf24',
+    showDimensions: true,
     ghostingOpacity: 0.5,
     loupeEnabled: true,
     magneticSnapEnabled: true,
