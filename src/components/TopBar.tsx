@@ -127,12 +127,6 @@ export function TopBar() {
     }
   };
 
-  const handleRenameProject = async () => {
-    const newName = await showPrompt("Enter project name:", project.name || '');
-    if (newName !== null) {
-      setProject({ ...project, name: newName });
-    }
-  };
 
   const handleExportExcel = () => {
     const wb = XLSX.utils.book_new();

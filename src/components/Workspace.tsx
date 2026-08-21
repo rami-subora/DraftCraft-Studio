@@ -12,7 +12,7 @@ import * as pdfjsLib from 'pdfjs-dist';
 pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
 
 export function Workspace() {
-  const { setProject, updateTab, ui } = useStore();
+  const { setProject, updateTab } = useStore();
   const [isDragging, setIsDragging] = useState(false);
 
   useEffect(() => {

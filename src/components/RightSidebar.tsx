@@ -5,7 +5,8 @@ import { getPolygonArea, getPolylineLength } from '../utils/geometry';
 import type { ShapeLayer, Material, LayerFolder } from '../store/useStore';
 
 export function RightSidebar() {
-  const { layers: allLayers, materials, folders: allFolders, ui, setUI, project, updateLayer, deleteLayer, addFolder, updateFolder, deleteFolder, setMaterials, duplicateLayers, moveLayersZIndex } = useStore();
+  const { layers: allLayers, materials, folders: allFolders, ui, setUI, updateLayer, deleteLayer, addFolder, updateFolder, deleteFolder, setMaterials, duplicateLayers, moveLayersZIndex, project } = useStore();
+  const activeTab = project.tabs.find(t => t.id === ui.activeTabId) || project.tabs[0];
   const [isResizing, setIsResizing] = useState(false);
   const [collapsedFolders, setCollapsedFolders] = useState<Record<string, boolean>>({});
   const [collapsedMaterials, setCollapsedMaterials] = useState<Record<string, boolean>>({});
