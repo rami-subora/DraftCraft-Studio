@@ -1,6 +1,5 @@
-import { useState, useRef, useEffect } from 'react';
 import { useStore } from '../store/useStore';
-import { File, Plus, X, Pencil } from 'lucide-react';
+import { Plus, X } from 'lucide-react';
 import { showConfirm, showPrompt } from './PromptDialog';
 
 export function TabBar() {

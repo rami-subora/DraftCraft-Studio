@@ -11,7 +11,7 @@ import Konva from 'konva';
 import { showPrompt } from './PromptDialog';
 
 export function CanvasViewport() {
-  const { project, ui, layers: allLayers, materials, addLayer, setUI, setProject, updateLayer, deleteLayer, updateTab } = useStore();
+  const { project, ui, layers: allLayers, materials, addLayer, setUI, updateLayer, deleteLayer, updateTab } = useStore();
   const activeTab = project.tabs.find(t => t.id === ui.activeTabId) || project.tabs[0];
   const [image] = useImage(activeTab?.warpedImageSrc || activeTab?.imageSrc || '');
   const layers = allLayers.filter(l => l.tabId === ui.activeTabId);
@@ -349,9 +349,8 @@ export function CanvasViewport() {
         const newWarpPoints = [...currentPoints, pointerPosition];
         updateTab(ui.activeTabId, { warpPoints: newWarpPoints });
         
-        if (newWarpPoints.length === 4 && image) {
-          const transformedDataUrl = createPerspectiveTransform(image.src, newWarpPoints);
-          updateTab(ui.activeTabId, { warpedImageSrc: transformedDataUrl });
+        if (newWarpPoints.length === 4) {
+          // applyWarp is triggered via the floating button; auto-apply here
           setUI({ activeTool: 'select' });
         }
       }

@@ -372,9 +372,9 @@ export function RightSidebar() {
                 {['text', 'arrow', 'cloud'].includes(selectedLayer.type) ? (
                   <div className="text-zinc-300">Annotation (Excluded from BOQ)</div>
                 ) : ['polygon', 'deduction', 'boundary', 'rect', 'circle'].includes(selectedLayer.type) ? (
-                  <div className="text-zinc-300">{project.scaleRatio ? (getPolygonArea(selectedLayer.points) / Math.pow(project.scaleRatio, 2)).toFixed(2) + ' m²' : 'Uncalibrated'}</div>
+                  <div className="text-zinc-300">{activeTab.scaleRatio ? (getPolygonArea(selectedLayer.points) / Math.pow(activeTab.scaleRatio, 2)).toFixed(2) + ' m²' : 'Uncalibrated'}</div>
                 ) : selectedLayer.type === 'polyline' ? (
-                  <div className="text-zinc-300">{project.scaleRatio ? (getPolylineLength(selectedLayer.points) / project.scaleRatio).toFixed(2) + ' m' : 'Uncalibrated'}</div>
+                  <div className="text-zinc-300">{activeTab.scaleRatio ? (getPolylineLength(selectedLayer.points) / activeTab.scaleRatio).toFixed(2) + ' m' : 'Uncalibrated'}</div>
                 ) : (
                   <div className="text-zinc-300">Count: 1</div>
                 )}
