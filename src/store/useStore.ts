@@ -80,7 +80,7 @@ export interface ProjectState {
 
 export interface UIState {
   activeTabId: string;
-  activeTool: 'select' | 'edit' | 'pan' | 'scale' | 'warp' | 'polygon' | 'polyline' | 'point' | 'deduct' | 'boundary' | 'ruler' | 'rect' | 'circle' | 'text' | 'arrow' | 'cloud';
+  activeTool: 'select' | 'edit' | 'pan' | 'scale' | 'warp' | 'polygon' | 'polyline' | 'point' | 'deduct' | 'boundary' | 'ruler' | 'rect' | 'circle' | 'text' | 'arrow' | 'cloud' | 'dimension';
   zoom: number;
   pan: Point;
   selectedLayerIds: string[];

@@ -15,7 +15,7 @@ export function TopBar() {
   
   const activeTab = project.tabs.find(t => t.id === ui.activeTabId) || project.tabs[0];
 
-  const { totalArea, grandTotalCost, lineItems } = useMemo(
+  const { totalArea, grandTotalCost } = useMemo(
     () => calculateTabBOQ(activeTab, allLayers, materials, project.exchangeRate || 1),
     [allLayers, materials, activeTab, project.exchangeRate]
   );

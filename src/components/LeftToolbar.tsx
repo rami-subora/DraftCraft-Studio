@@ -37,7 +37,6 @@ export function LeftToolbar() {
   const { ui, setUI, project, layers: allLayers, materials } = useStore();
   const activeTool = ui.activeTool;
   const activeTab = project.tabs.find(t => t.id === ui.activeTabId) || project.tabs[0];
-  const layers = allLayers.filter(l => l.tabId === ui.activeTabId);
   
   const [isResizing, setIsResizing] = useState(false);
   const [showCustomForm, setShowCustomForm] = useState(false);
