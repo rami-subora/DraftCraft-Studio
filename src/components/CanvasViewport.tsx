@@ -9,6 +9,7 @@ import { Rect } from 'react-konva';
 import { ZoomIn, ZoomOut, Maximize } from 'lucide-react';
 import Konva from 'konva';
 import { showPrompt } from './PromptDialog';
+import { magicWandTrace } from '../utils/magicWand';
 
 export function CanvasViewport() {
   const { project, ui, layers: allLayers, materials, addLayer, setUI, updateLayer, deleteLayer, updateTab } = useStore();
@@ -18,6 +19,7 @@ export function CanvasViewport() {
   const stageRef = useRef<any>(null);
   const transformerRef = useRef<any>(null);
   const marqueeDragFinishedRef = useRef(false);
+  const imageElRef = useRef<HTMLImageElement | null>(null);
   
   // State for drawing
   const [mousePos, setMousePos] = useState<Point | null>(null);
@@ -69,6 +71,7 @@ export function CanvasViewport() {
       else if (key === 't') setUI({ activeTool: 'text', currentShapePoints: [] });
       else if (key === 'a') setUI({ activeTool: 'arrow', currentShapePoints: [] });
       else if (key === 'k') setUI({ activeTool: 'cloud', currentShapePoints: [] });
+      else if (key === 'g') setUI({ activeTool: 'wand', currentShapePoints: [] });
       else if (key === 'delete' || key === 'backspace') {
         if (ui.selectedLayerIds.length > 0) {
           ui.selectedLayerIds.forEach(id => useStore.getState().deleteLayer(id));
@@ -120,6 +123,7 @@ export function CanvasViewport() {
       
       const allPoints = ui.selectedLayerIds.every(id => layers.find(l => l.id === id)?.type === 'point');
       transformerRef.current.resizeEnabled(!allPoints);
+      transformerRef.current.rotateEnabled(!allPoints);
       
       transformerRef.current.getLayer().batchDraw();
     } else if (transformerRef.current) {
@@ -342,7 +346,7 @@ export function CanvasViewport() {
     setUI({ currentShapePoints: [] });
   };
 
-  const handleStageClick = (e: any) => {
+  const handleStageClick = async (e: any) => {
     if (isMiddlePanning || ui.activeTool === 'pan' || e.evt.button !== 0) return;
     
     if (marqueeDragFinishedRef.current) {
@@ -507,6 +511,42 @@ export function CanvasViewport() {
         opacity: 1,
         deductions: []
       });
+    } else if (ui.activeTool === 'wand') {
+      // Magic wand: get image element and trace at click point
+      const imgSrc = activeTab?.warpedImageSrc || activeTab?.imageSrc;
+      if (!imgSrc) return;
+
+      // Build or reuse cached image element
+      if (!imageElRef.current || imageElRef.current.src !== imgSrc) {
+        const el = new Image();
+        el.crossOrigin = 'anonymous';
+        el.src = imgSrc;
+        imageElRef.current = el;
+        if (!el.complete) {
+          await new Promise(res => { el.onload = res; el.onerror = res; });
+        }
+      }
+      const imgEl = imageElRef.current;
+      if (!imgEl || !imgEl.complete) return;
+
+      // pointerPosition is already in canvas (image) coordinate space
+      const pts = magicWandTrace(imgEl, pointerPosition.x, pointerPosition.y, ui.wandTolerance);
+      if (pts.length < 3) { alert('Could not detect a clear region. Try adjusting the tolerance.'); return; }
+
+      const now = Date.now();
+      addLayer({
+        id: `layer-${now}`,
+        tabId: ui.activeTabId,
+        type: 'polygon',
+        points: pts,
+        materialId: null,
+        name: `Wand ${layers.length + 1}`,
+        visible: true,
+        locked: false,
+        opacity: 0.45,
+        deductions: []
+      });
+      setUI({ selectedLayerIds: [`layer-${now}`] });
     }
   };
 
@@ -949,7 +989,7 @@ export function CanvasViewport() {
   };
 
   return (
-    <div className="flex-1 bg-zinc-950 overflow-hidden relative" style={{ cursor: (isMiddlePanning || ui.activeTool === 'pan') ? 'grab' : ['polygon','polyline','point','deduct','warp','scale','rect','circle','boundary','ruler','text','arrow','cloud','dimension'].includes(ui.activeTool) ? 'crosshair' : 'default' }}>
+    <div className="flex-1 bg-zinc-950 overflow-hidden relative" style={{ cursor: (isMiddlePanning || ui.activeTool === 'pan') ? 'grab' : ['polygon','polyline','point','deduct','warp','scale','rect','circle','boundary','ruler','text','arrow','cloud','dimension','wand'].includes(ui.activeTool) ? 'crosshair' : 'default' }}>
       <div className="absolute bottom-4 left-4 text-xs font-mono text-zinc-500 z-10 pointer-events-none">
         Zoom: {Math.round(ui.zoom * 100)}% | Active Tool: {ui.activeTool.toUpperCase()} | Points: {ui.currentShapePoints.length}
       </div>

@@ -13,7 +13,7 @@ import * as pdfjsLib from 'pdfjs-dist';
 pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
 
 export function Workspace() {
-  const { setProject, updateTab } = useStore();
+  const { updateTab } = useStore();
   const [isDragging, setIsDragging] = useState(false);
 
   useEffect(() => {
@@ -65,7 +65,6 @@ export function Workspace() {
           warpedImageSrc: null,
           name: file.name
         });
-        setProject({ name: file.name }); // Optionally set project name if desired, or keep it per tab
       };
       reader.readAsDataURL(file);
     } else if (file.type === 'application/pdf') {
@@ -89,7 +88,6 @@ export function Workspace() {
           warpedImageSrc: null,
           name: file.name
         });
-        setProject({ name: file.name });
       } catch (err) {
         console.error('Error rendering PDF:', err);
         alert('Failed to parse PDF.');

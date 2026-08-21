@@ -1,6 +1,6 @@
 import { useMemo, useState, useEffect } from 'react';
 import { useStore } from '../store/useStore';
-import { Layers, Settings2, Trash2, Eye, EyeOff, Folder as FolderIcon, FolderOpen, ChevronDown, ChevronRight, FolderPlus, Lock, Unlock, ArrowUp, ArrowDown, ChevronsUp, ChevronsDown, Copy } from 'lucide-react';
+import { Layers, Settings2, Trash2, Eye, EyeOff, Folder as FolderIcon, FolderOpen, ChevronDown, ChevronRight, FolderPlus, Lock, Unlock, ArrowUp, ArrowDown, ChevronsUp, ChevronsDown, Copy, FlipHorizontal, FlipVertical } from 'lucide-react';
 import { getPolygonArea, getPolylineLength } from '../utils/geometry';
 import type { ShapeLayer, Material, LayerFolder } from '../store/useStore';
 
@@ -16,6 +16,32 @@ export function RightSidebar() {
 
   const selectedLayers = layers.filter(l => ui.selectedLayerIds.includes(l.id));
   const selectedLayer = selectedLayers.length === 1 ? selectedLayers[0] : null;
+
+  const mirrorLayers = (axis: 'horizontal' | 'vertical') => {
+    if (selectedLayers.length === 0) return;
+    // Find bounding box of ALL selected layers
+    const allPts = selectedLayers.flatMap(l => l.points);
+    const minX = Math.min(...allPts.map(p => p.x));
+    const maxX = Math.max(...allPts.map(p => p.x));
+    const minY = Math.min(...allPts.map(p => p.y));
+    const maxY = Math.max(...allPts.map(p => p.y));
+    const centerX = (minX + maxX) / 2;
+    const centerY = (minY + maxY) / 2;
+
+    const now = Date.now();
+    selectedLayers.forEach((layer, i) => {
+      const mirroredPts = layer.points.map(p => ({
+        x: axis === 'vertical' ? 2 * centerX - p.x : p.x,
+        y: axis === 'horizontal' ? 2 * centerY - p.y : p.y,
+      }));
+      useStore.getState().addLayer({
+        ...layer,
+        id: `layer-${now}-${i}`,
+        name: `${layer.name} (Mirror)`,
+        points: mirroredPts,
+      });
+    });
+  };
 
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
@@ -251,6 +277,12 @@ export function RightSidebar() {
               <div className="flex space-x-2 mb-4">
                  <button onClick={() => duplicateLayers([selectedLayer.id])} className="flex-1 flex items-center justify-center space-x-1 px-2 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded border border-zinc-700 transition-colors text-xs font-medium" title="Duplicate Layer (Ctrl+D)">
                     <Copy size={14} /> <span>Duplicate</span>
+                 </button>
+                 <button onClick={() => mirrorLayers('vertical')} className="flex-1 flex items-center justify-center space-x-1 px-2 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded border border-zinc-700 transition-colors text-xs font-medium" title="Mirror Horizontally (flip left↔right)">
+                    <FlipHorizontal size={14} /> <span>↔ Mirror</span>
+                 </button>
+                 <button onClick={() => mirrorLayers('horizontal')} className="flex-1 flex items-center justify-center space-x-1 px-2 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded border border-zinc-700 transition-colors text-xs font-medium" title="Mirror Vertically (flip top↔bottom)">
+                    <FlipVertical size={14} /> <span>↕ Mirror</span>
                  </button>
                  <button onClick={() => moveLayersZIndex([selectedLayer.id], 'up')} className="px-2 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-zinc-200 rounded border border-zinc-700 transition-colors" title="Bring Forward">
                     <ArrowUp size={14} />

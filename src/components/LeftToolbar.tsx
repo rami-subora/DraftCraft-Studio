@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { 
   MousePointer2, MousePointerClick, Hand, SquareDashedMousePointer, Image as ImageIcon, 
   MapPin, Spline, Frame, Ruler, RectangleHorizontal, Circle as CircleIcon, Maximize, Activity, Calculator, PlusCircle,
-  Type, MoveUpRight, Cloud, MoveHorizontal
+  Type, MoveUpRight, Cloud, MoveHorizontal, Wand2
 } from 'lucide-react';
 import { useStore } from '../store/useStore';
 import { calculateTabBOQ } from '../utils/boq';
@@ -31,6 +31,7 @@ const TOOLS = [
   { id: 'scale', icon: Activity, label: 'Set Scale', hotkey: 'C' },
   { id: 'ruler', icon: Ruler, label: 'Measure Ruler', hotkey: 'U' },
   { id: 'dimension', icon: MoveHorizontal, label: 'Dimension Line', hotkey: 'D' },
+  { id: 'wand', icon: Wand2, label: 'Magic Wand', hotkey: 'G' },
 ] as const;
 
 export function LeftToolbar() {
@@ -96,6 +97,26 @@ export function LeftToolbar() {
            })}
          </div>
       </div>
+
+      {/* Context Options Panel */}
+      {activeTool === 'wand' && (
+        <div className="p-3 border-b border-zinc-800 bg-zinc-900/80">
+          <div className="text-xs font-semibold uppercase tracking-wider text-zinc-500 mb-2">Magic Wand Settings</div>
+          <label className="text-xs text-zinc-400 mb-1 block">
+            Tolerance: <span className="text-amber-400 font-semibold">{ui.wandTolerance}</span>
+          </label>
+          <input
+            type="range" min="5" max="120" step="1"
+            value={ui.wandTolerance}
+            onChange={(e) => setUI({ wandTolerance: parseInt(e.target.value) })}
+            className="w-full accent-amber-500"
+          />
+          <div className="flex justify-between text-[10px] text-zinc-600 mt-0.5">
+            <span>Strict</span><span>Loose</span>
+          </div>
+          <div className="mt-2 text-[10px] text-zinc-600">Click on any color region to auto-trace it into a polygon.</div>
+        </div>
+      )}
 
       {/* Live Estimation Panel (Moved from RightSidebar) */}
       <div className="flex-1 overflow-y-auto flex flex-col">

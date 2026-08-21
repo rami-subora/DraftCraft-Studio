@@ -80,7 +80,7 @@ export interface ProjectState {
 
 export interface UIState {
   activeTabId: string;
-  activeTool: 'select' | 'edit' | 'pan' | 'scale' | 'warp' | 'polygon' | 'polyline' | 'point' | 'deduct' | 'boundary' | 'ruler' | 'rect' | 'circle' | 'text' | 'arrow' | 'cloud' | 'dimension';
+  activeTool: 'select' | 'edit' | 'pan' | 'scale' | 'warp' | 'polygon' | 'polyline' | 'point' | 'deduct' | 'boundary' | 'ruler' | 'rect' | 'circle' | 'text' | 'arrow' | 'cloud' | 'dimension' | 'wand';
   zoom: number;
   pan: Point;
   selectedLayerIds: string[];
@@ -91,6 +91,7 @@ export interface UIState {
   lastSynced?: number;
   rightSidebarWidth: number;
   leftSidebarWidth: number;
+  wandTolerance: number;
 }
 
 export interface AppState {
@@ -174,6 +175,7 @@ export const useStore = create<AppState>((set, get) => ({
     ghostingMode: false,
     rightSidebarWidth: 320,
     leftSidebarWidth: 240,
+    wandTolerance: 30,
     pricelistSyncUrl: '',
     lastSynced: undefined,
   },
